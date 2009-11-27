@@ -88,25 +88,24 @@ make_query_tree(PlannerInfo *root, List *initial_rels)
 	return (QueryTree *) linitial(result);
 }
 
+static QueryTree *
+saio_move(PlannerInfo *root, QueryTree *tree)
+{
+	return tree;
+}
+
 RelOptInfo *saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 {
-	/* ListCell	*l; */
 	RelOptInfo	*res;
 	QueryTree	*tree;
 
-	/* foreach(l, initial_rels) */
-	/* { */
-	/* 	RelOptInfo *rel = lfirst(l); */
-
-	/* 	debug_print_rel(root, rel); */
-	/* } */
-
 	tree = make_query_tree(root, initial_rels);
 
-	debug_dump_query_tree(root, tree);
+	debug_dump_query_tree(root, tree, "/tmp/original.dot");
 
-	res = standard_join_search(root, levels_needed, initial_rels);
+	saio_move(root, tree);
 
-	/* debug_print_rel(root, res); */
+	res = tree->rel;
+
 	return res;
 }
