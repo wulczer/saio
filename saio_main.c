@@ -43,7 +43,7 @@ _PG_init(void)
 							 "Use SA for query planning.",
 							 NULL,
 							 &enable_saio,
-							 false,
+							 true,
 							 PGC_USERSET,
 							 0,
 							 NULL,
