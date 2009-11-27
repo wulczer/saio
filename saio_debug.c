@@ -1,5 +1,7 @@
 #include "postgres.h"
 
+#include <stdio.h>
+
 #include "nodes/print.h"
 #include "optimizer/paths.h"
 #include "saio_debug.h"
@@ -190,17 +192,62 @@ debug_print_rel(PlannerInfo *root, RelOptInfo *rel)
 
 
 static void
+fprint_relids(FILE *f, Relids relids)
+{
+	Relids		tmprelids;
+	int			x;
+	bool		first = true;
+
+	tmprelids = bms_copy(relids);
+	while ((x = bms_first_member(tmprelids)) >= 0)
+	{
+		if (!first)
+			fprintf(f, " ");
+		fprintf(f, "%d", x);
+		first = false;
+	}
+	bms_free(tmprelids);
+}
+
+static void
 debug_dump_query_tree_one(PlannerInfo *root, RelOptInfo *rel)
 {
 	debug_print_rel(root, rel);
 }
 
-void debug_dump_query_tree(PlannerInfo *root, QueryTree *tree)
+static void
+debug_dump_query_tree_rec(PlannerInfo *root, QueryTree *tree, FILE *f)
 {
-	if (tree == NULL)
+	if (tree->left == NULL)
+	{
+		Assert(tree->right == NULL);
 		return;
+	}
+	Assert(tree->right != NULL);
 
-	debug_dump_query_tree_one(root, tree->rel);
-	debug_dump_query_tree(root, tree->left);
-	debug_dump_query_tree(root, tree->right);
+	fprintf(f, "        \"(");
+	fprint_relids(f, tree->rel->relids);
+	fprintf(f, ")\" -> \"(");
+	fprint_relids(f, tree->left->rel->relids);
+	fprintf(f, ")\"\n");
+
+	fprintf(f, "        \"(");
+	fprint_relids(f, tree->rel->relids);
+	fprintf(f, ")\" -> \"(");
+	fprint_relids(f, tree->right->rel->relids);
+	fprintf(f, ")\"\n");
+
+	debug_dump_query_tree_rec(root, tree->left, f);
+	debug_dump_query_tree_rec(root, tree->right, f);
+}
+
+void debug_dump_query_tree(PlannerInfo *root, QueryTree *tree, char *path)
+{
+	FILE	*f;
+
+	f = fopen(path, "w");
+	fprintf(f, "strict digraph {\n");
+	debug_dump_query_tree_rec(root, tree, f);
+	fprintf(f, "}\n");
+	fclose(f);
 }
