@@ -210,14 +210,18 @@ fprint_relids(FILE *f, Relids relids)
 }
 
 static void
-debug_dump_query_tree_one(PlannerInfo *root, RelOptInfo *rel)
+debug_dump_query_tree_rec(PlannerInfo *root, QueryTree *tree,
+						  QueryTree *selected1, QueryTree *selected2,
+						  FILE *f)
 {
-	debug_print_rel(root, rel);
-}
 
-static void
-debug_dump_query_tree_rec(PlannerInfo *root, QueryTree *tree, FILE *f)
-{
+	fprintf(f, "        \"(");
+	fprint_relids(f, tree->rel->relids);
+	fprintf(f, ")\"");
+	if (tree == selected1 || tree == selected2)
+		fprintf(f, " [color=red, fontcolor=red]");
+	fprintf(f, ";\n");
+
 	if (tree->left == NULL)
 	{
 		Assert(tree->right == NULL);
@@ -235,19 +239,63 @@ debug_dump_query_tree_rec(PlannerInfo *root, QueryTree *tree, FILE *f)
 	fprint_relids(f, tree->rel->relids);
 	fprintf(f, ")\" -> \"(");
 	fprint_relids(f, tree->right->rel->relids);
-	fprintf(f, ")\"\n");
+	fprintf(f, ")\";\n");
 
-	debug_dump_query_tree_rec(root, tree->left, f);
-	debug_dump_query_tree_rec(root, tree->right, f);
+	debug_dump_query_tree_rec(root, tree->left, selected1, selected2, f);
+	debug_dump_query_tree_rec(root, tree->right, selected1, selected2, f);
 }
 
-void debug_dump_query_tree(PlannerInfo *root, QueryTree *tree, char *path)
+void
+debug_dump_query_tree(PlannerInfo *root, QueryTree *tree,
+					  QueryTree *selected1, QueryTree *selected2,
+					  char *path)
 {
 	FILE	*f;
 
 	f = fopen(path, "w");
 	fprintf(f, "strict digraph {\n");
-	debug_dump_query_tree_rec(root, tree, f);
+	debug_dump_query_tree_rec(root, tree, selected1, selected2, f);
 	fprintf(f, "}\n");
 	fclose(f);
+}
+
+static void
+debug_verify_query_tree_rec(QueryTree *tree, QueryTree *left, QueryTree *right)
+{
+	if (left == NULL)
+	{
+		Assert(right == NULL);
+		return;
+	}
+	Assert(right != NULL);
+
+	Assert(left->parent == tree);
+	Assert(right->parent == tree);
+
+	debug_verify_query_tree_rec(left, left->left, left->right);
+	debug_verify_query_tree_rec(right, right->left, right->right);
+}
+
+void
+debug_verify_query_tree(QueryTree *tree)
+{
+	Assert(tree->parent == NULL);
+	debug_verify_query_tree_rec(tree, tree->left, tree->right);
+}
+
+void
+debug_print_query_tree_list(char *intro, List *trees)
+{
+	ListCell	*lc;
+
+	printf("%s", intro);
+	foreach(lc, trees)
+	{
+		QueryTree	*tree = (QueryTree *) lfirst(lc);
+
+		printf("(");
+		fprint_relids(stdout, tree->rel->relids);
+		printf(") ");
+	}
+	printf("\n");
 }

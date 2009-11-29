@@ -24,8 +24,8 @@
 static List *
 merge_trees(PlannerInfo *root, List *result, QueryTree *tree)
 {
-	ListCell   *prev;
-	ListCell   *lc;
+	ListCell	*prev;
+	ListCell	*lc;
 
 	prev = NULL;
 	foreach(lc, result)
@@ -45,6 +45,9 @@ merge_trees(PlannerInfo *root, List *result, QueryTree *tree)
 			new_tree->rel = joinrel;
 			new_tree->left = old_tree;
 			new_tree->right = tree;
+			new_tree->parent = NULL;
+			old_tree->parent = new_tree;
+			tree->parent = new_tree;
 
 			result = list_delete_cell(result, lc, prev);
 
@@ -53,7 +56,7 @@ merge_trees(PlannerInfo *root, List *result, QueryTree *tree)
 		prev = lc;
 	}
 
-	return lappend(result, tree);
+	return lcons(tree, result);
 }
 
 static QueryTree *
@@ -61,8 +64,6 @@ make_query_tree(PlannerInfo *root, List *initial_rels)
 {
 	List		*result;
 	ListCell	*lc;
-
-	Assert(list_length(initial_rels) > 0);
 
 	result = NIL;
 
@@ -77,6 +78,7 @@ make_query_tree(PlannerInfo *root, List *initial_rels)
 		tree->rel = rel;
 		tree->left = NULL;
 		tree->right = NULL;
+		tree->parent = NULL;
 
 		result = merge_trees(root, result, tree);
 	}
@@ -88,9 +90,101 @@ make_query_tree(PlannerInfo *root, List *initial_rels)
 	return (QueryTree *) linitial(result);
 }
 
-static QueryTree *
-saio_move(PlannerInfo *root, QueryTree *tree)
+static List *
+get_tree_subtree_rec(QueryTree *tree, List *res)
 {
+	if (tree == NULL)
+		return res;
+
+	res = lcons(tree, res);
+	get_tree_subtree_rec(tree->left, res);
+	get_tree_subtree_rec(tree->right, res);
+	return res;
+}
+
+static List *
+get_tree_subtree(QueryTree *tree)
+{
+	return get_tree_subtree_rec(tree, NIL);
+}
+
+static List *
+get_parents_rec(QueryTree *tree, List *res)
+{
+	Assert(tree != NULL);
+
+	while (tree != NULL)
+	{
+		res = lcons(tree, res);
+		tree = tree->parent;
+	}
+	return res;
+}
+
+static List *
+get_parents(QueryTree *tree)
+{
+	return get_parents_rec(tree, NIL);
+}
+
+
+static List *
+get_siblings(QueryTree *tree)
+{
+	QueryTree	*parent;
+
+	Assert(tree != NULL);
+
+	parent = tree->parent;
+
+	if (parent == NULL)
+		return NIL;
+
+	Assert(parent->left == tree || parent->right == tree);
+
+	if (parent->left == tree)
+		return list_make1(parent->right);
+	if (parent->right == tree)
+		return list_make1(parent->right);
+
+	return NIL; /* keep compiler quiet */
+}
+
+static QueryTree *
+saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
+{
+	List		*choices, *tmp;
+	QueryTree	*tree1, *tree2;
+
+	if (list_length(all_trees) == 1)
+		return tree;
+
+	debug_print_query_tree_list("All trees: ", all_trees);
+
+	choices = list_copy(all_trees);
+	choices = list_delete_ptr(choices, llast(choices));
+
+	debug_print_query_tree_list("Choices for first node: ", choices);
+
+	tree1 = list_nth(choices, random() % list_length(choices));
+
+	debug_print_query_tree_list("First node: ", list_make1(tree1));
+
+	tmp = get_tree_subtree(tree1);
+	tmp = list_concat_unique_ptr(get_parents(tree1), tmp);
+	tmp = list_concat_unique_ptr(get_siblings(tree1), tmp);
+	choices = list_difference_ptr(choices, tmp);
+
+	debug_print_query_tree_list("Choices for second node: ", choices);
+
+	if (choices == NIL)
+		return tree;
+
+	tree2 = list_nth(choices, random() % list_length(choices));
+
+	debug_print_query_tree_list("Second node: ", list_make1(tree2));
+	debug_dump_query_tree(root, tree, tree1, tree2, "/tmp/move.dot");
+
 	return tree;
 }
 
@@ -98,12 +192,18 @@ RelOptInfo *saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 {
 	RelOptInfo	*res;
 	QueryTree	*tree;
+	List		*all_trees;
 
 	tree = make_query_tree(root, initial_rels);
+	all_trees = get_tree_subtree(tree);
 
-	debug_dump_query_tree(root, tree, "/tmp/original.dot");
+	debug_dump_query_tree(root, tree, NULL, NULL, "/tmp/original.dot");
 
-	saio_move(root, tree);
+	tree = saio_move(root, tree, all_trees);
+
+	debug_dump_query_tree(root, tree, NULL, NULL, "/tmp/transformed.dot");
+
+	debug_verify_query_tree(tree);
 
 	res = tree->rel;
 
