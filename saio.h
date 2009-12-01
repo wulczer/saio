@@ -20,7 +20,8 @@
 
 
 typedef struct QueryTree {
-	RelOptInfo		*rel;
+	RelOptInfo			*rel;
+	RelOptInfo			*tmp;
 	struct QueryTree	*left;
 	struct QueryTree	*right;
 	struct QueryTree	*parent;

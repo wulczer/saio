@@ -4,6 +4,8 @@
 #include "saio.h"
 #include "optimizer/paths.h"
 
+void fprint_relids(FILE *f, Relids relids);
+
 void debug_print_rel(PlannerInfo *root, RelOptInfo *rel);
 
 void debug_dump_query_tree(PlannerInfo *root, QueryTree *tree, QueryTree
