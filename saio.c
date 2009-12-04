@@ -74,7 +74,6 @@ merge_trees(PlannerInfo *root, List *result, QueryTree *tree)
 			old_tree->parent = new_tree;
 			tree->parent = new_tree;
 
-			elog(NOTICE, "Created query tree (merge) and new_tree->parent = %d", (int) new_tree->parent);
 			debug_verify_query_tree(new_tree);
 
 			result = list_delete_cell(result, lc, prev);
@@ -109,7 +108,6 @@ make_query_tree(PlannerInfo *root, List *initial_rels)
 		tree->tmp = NULL;
 		tree->rel = rel;
 
-		elog(NOTICE, "Created query tree (make_q_t)");
 		debug_verify_query_tree(tree);
 
 		result = merge_trees(root, result, tree);
@@ -265,7 +263,16 @@ cleanup_tmp_path(List *trees, bool keep)
 	}
 }
 
-static QueryTree *
+static bool
+compare_tree(PlannerInfo *root, QueryTree *tree)
+{
+	Assert(tree != NULL);
+	Assert(tree->tmp != NULL);
+	return (tree->tmp->cheapest_total_path->total_cost <
+			tree->rel->cheapest_total_path->total_cost);
+}
+
+static bool
 do_move(PlannerInfo *root, QueryTree *tree,
 		QueryTree *tree1, QueryTree *tree2)
 {
@@ -312,54 +319,90 @@ do_move(PlannerInfo *root, QueryTree *tree,
 	if (ok)
 		ok = recalculate_trees(root, t2);
 
+	if (ok)
+		ok = compare_tree(root, tree);
+
 	printf("Keeping the state: %d\n", ok);
 	cleanup_tmp_path(t1, ok);
 	cleanup_tmp_path(t2, ok);
 
-	return tree;
+	if (!ok)
+	{
+		tree1->parent = parent1;
+		tree2->parent = parent2;
+
+		if (parent1->left == tree2)
+			parent1->left = tree1;
+		else
+			parent1->right = tree1;
+
+		if (parent2->left == tree1)
+			parent2->left = tree2;
+		else
+			parent2->right = tree2;
+	}
+
+	return ok;
 }
+
+
+#define CUTOFF 30
 
 static QueryTree *
 saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 {
 	List		*choices, *tmp;
 	QueryTree	*tree1, *tree2;
+	int			loops;
+	bool		ok;
 
 	if (list_length(all_trees) == 1)
 		return tree;
 
+	loops = 0;
+
 	debug_print_query_tree_list("All trees: ", all_trees);
 
-	choices = list_copy(all_trees);
-	choices = list_delete_ptr(choices, llast(choices));
+	while (loops++ < CUTOFF)
+	{
+		char dump_before[NAMEDATALEN];
+		char dump_after[NAMEDATALEN];
 
-	debug_print_query_tree_list("Choices for first node: ", choices);
+		snprintf(dump_before, NAMEDATALEN, "/tmp/before-move-%d.dot", loops);
+		snprintf(dump_after, NAMEDATALEN, "/tmp/after-move-%d.dot", loops);
 
-	tree1 = list_nth(choices, random() % list_length(choices));
+		choices = list_copy(all_trees);
+		choices = list_delete_ptr(choices, llast(choices));
 
-	debug_print_query_tree_list("First node: ", list_make1(tree1));
+		debug_print_query_tree_list("Choices for first node: ", choices);
 
-	tmp = get_tree_subtree(tree1);
-	tmp = list_concat_unique_ptr(get_parents(tree1, false), tmp);
-	tmp = list_concat_unique_ptr(get_siblings(tree1), tmp);
-	choices = list_difference_ptr(choices, tmp);
+		tree1 = list_nth(choices, random() % list_length(choices));
 
-	debug_print_query_tree_list("Choices for second node: ", choices);
+		debug_print_query_tree_list("First node: ", list_make1(tree1));
 
-	if (choices == NIL)
-		return tree;
+		tmp = get_tree_subtree(tree1);
+		tmp = list_concat_unique_ptr(get_parents(tree1, false), tmp);
+		tmp = list_concat_unique_ptr(get_siblings(tree1), tmp);
+		choices = list_difference_ptr(choices, tmp);
 
-	tree2 = list_nth(choices, random() % list_length(choices));
+		debug_print_query_tree_list("Choices for second node: ", choices);
 
-	debug_print_query_tree_list("Second node: ", list_make1(tree2));
-	debug_dump_query_tree(root, tree, tree1, tree2, "/tmp/before-move.dot");
+		if (choices == NIL)
+			return tree;
 
-	printf("Move starting\n");
-	tree = do_move(root, tree, tree1, tree2);
-	printf("Move finished\n");
+		tree2 = list_nth(choices, random() % list_length(choices));
 
-	debug_dump_query_tree(root, tree, tree1, tree2, "/tmp/after-move.dot");
-	printf("Dump finished\n");
+		debug_print_query_tree_list("Second node: ", list_make1(tree2));
+		debug_dump_query_tree(root, tree, tree1, tree2, dump_before);
+
+		printf("Move starting\n");
+		ok = do_move(root, tree, tree1, tree2);
+		printf("Move finished\n");
+
+		debug_dump_query_tree(root, tree, tree1, tree2, dump_after);
+		printf("Dump finished\n");
+	}
+
 	return tree;
 }
 
@@ -371,15 +414,9 @@ RelOptInfo *saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 
 	tree = make_query_tree(root, initial_rels);
 
-	elog(NOTICE, "created the query tree");
-
 	all_trees = get_tree_subtree(tree);
 
-	elog(NOTICE, "read all trees");
-
 	debug_dump_query_tree(root, tree, NULL, NULL, "/tmp/original.dot");
-
-	elog(NOTICE, "doing the move");
 
 	tree = saio_move(root, tree, all_trees);
 

@@ -218,9 +218,7 @@ debug_dump_query_tree_rec(PlannerInfo *root, QueryTree *tree,
 	Assert(tree->rel != NULL);
 
 	fprintf(f, "        \"(");
-	printf("printing relids\n");
 	fprint_relids(f, tree->rel->relids);
-	printf("printed relids\n");
 	fprintf(f, ")\"");
 	if (tree == selected1)
 		fprintf(f, " [color=red, fontcolor=red]");
@@ -285,7 +283,6 @@ debug_verify_query_tree_rec(QueryTree *tree, QueryTree *left, QueryTree *right)
 void
 debug_verify_query_tree(QueryTree *tree)
 {
-	elog(NOTICE, "ok, parent is fucking null: %d", (int) tree->parent);
 	Assert(tree->parent == NULL);
 	debug_verify_query_tree_rec(tree, tree->left, tree->right);
 }
