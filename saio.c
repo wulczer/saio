@@ -50,31 +50,26 @@ merge_trees(PlannerInfo *root, List *result, QueryTree *tree)
 	prev = NULL;
 	foreach(lc, result)
 	{
-		QueryTree	*old_tree = (QueryTree *) lfirst(lc);
+		QueryTree	*other_tree = (QueryTree *) lfirst(lc);
 		RelOptInfo	*joinrel;
 
-		joinrel = make_join_rel(root, old_tree->rel, tree->rel);
+		joinrel = make_join_rel(root, other_tree->rel, tree->rel);
 
 		if (joinrel)
 		{
 			QueryTree	*new_tree;
 
 			new_tree = (QueryTree *) palloc0(sizeof(QueryTree));
-			set_cheapest(joinrel);
-
-			Assert(old_tree != NULL);
-			Assert(tree != NULL);
 
 			new_tree->rel = joinrel;
-			new_tree->left = old_tree;
-			new_tree->right = tree;
-			new_tree->parent = NULL;
-			new_tree->tmp = NULL;
 
-			old_tree->parent = new_tree;
+			new_tree->left = other_tree;
+			other_tree->parent = new_tree;
+
+			new_tree->right = tree;
 			tree->parent = new_tree;
 
-			debug_verify_query_tree(new_tree);
+			set_cheapest(joinrel);
 
 			result = list_delete_cell(result, lc, prev);
 
@@ -102,13 +97,7 @@ make_query_tree(PlannerInfo *root, List *initial_rels)
 
 		/* Make it into a one-level tree */
 		tree = (QueryTree *) palloc0(sizeof(QueryTree));
-		tree->parent = NULL;
-		tree->left = NULL;
-		tree->right = NULL;
-		tree->tmp = NULL;
 		tree->rel = rel;
-
-		debug_verify_query_tree(tree);
 
 		result = merge_trees(root, result, tree);
 	}
@@ -143,12 +132,12 @@ get_parents_rec(QueryTree *tree, bool reverse, List *res)
 {
 	Assert(tree != NULL);
 
-	while (tree != NULL)
+	while (tree->parent != NULL)
 	{
 		if (reverse)
-			res = lappend(res, tree);
+			res = lappend(res, tree->parent);
 		else
-			res = lcons(tree, res);
+			res = lcons(tree->parent, res);
 		tree = tree->parent;
 	}
 	return res;
@@ -180,105 +169,79 @@ get_siblings(QueryTree *tree)
 	if (parent->right == tree)
 		return list_make1(parent->left);
 
+	Assert(false);
 	return NIL; /* keep compiler quiet */
 }
 
+
 static bool
-recalculate_trees(PlannerInfo *root, List *trees)
+recalculate_tree(PlannerInfo *root, QueryTree *tree)
 {
-	ListCell	*lc;
 	RelOptInfo	*joinrel;
-	RelOptInfo	*left, *right;
 	bool		ok;
+
+	Assert(tree != NULL);
+	Assert(tree->left != NULL);
+	Assert(tree->right != NULL);
 
 	ok = true;
 
-	debug_print_query_tree_list("Recalculating trees: ", trees);
+	if (tree->left->rel == NULL)
+		ok = recalculate_tree(root, tree->left);
 
-	foreach(lc, trees)
-	{
-		QueryTree	*tree = (QueryTree *) lfirst(lc);
+	Assert(!ok || (tree->left->rel != NULL));
 
-		Assert(tree != NULL);
+	if (!ok)
+		return false;
 
-		printf("Recalculating (");
-		fprint_relids(stdout, tree->rel->relids);
-		printf("), ok = %d\n", ok);
+	if (tree->right->rel == NULL)
+		ok = recalculate_tree(root, tree->right);
 
-		if (!ok)
-			continue;
+	Assert(!ok || (tree->left->rel != NULL));
 
-		if (tree->left == NULL)
-		{
-			Assert(tree->right == NULL);
-			tree->tmp = tree->rel;
-			continue;
-		}
+	if (!ok)
+		return false;
 
-		Assert(tree->right != NULL);
+	printf("Recalculating: left = (");
+	fprintf_relids(stdout, tree->left->rel->relids);
+	printf(") right = (");
+	fprintf_relids(stdout, tree->right->rel->relids);
+	printf(")\n");
 
-		left = tree->left->tmp ? tree->left->tmp : tree->left->rel;
-		right = tree->right->tmp ? tree->right->tmp : tree->right->rel;
+	joinrel = make_join_rel(root, tree->left->rel, tree->right->rel);
+	if (joinrel == NULL)
+		return false;
 
-		printf("Recalculating: left = (");
-		fprint_relids(stdout, left->relids);
-		printf(") right = (");
-		fprint_relids(stdout, right->relids);
-		printf(")\n");
+	set_cheapest(joinrel);
+	printf("Built joinrel for (");
+	fprintf_relids(stdout, joinrel->relids);
+	printf(") with cheapest path is %.2f\n", joinrel->cheapest_total_path->total_cost);
 
-		joinrel = make_join_rel(root, left, right);
+	tree->rel = joinrel;
 
-		if (joinrel)
-		{
-			set_cheapest(joinrel);
-			tree->tmp = joinrel;
-		}
-		else
-		{
-			ok = false;
-		}
-	}
-
-	return ok;
+	return true;
 }
 
 static void
-cleanup_tmp_path(List *trees, bool keep)
+cleanup_tree(QueryTree *tree)
 {
-	ListCell	*lc;
+	if (tree == NULL)
+		return;
 
-	foreach(lc, trees)
+	if (tree->left != NULL)
 	{
-		QueryTree	*tree = (QueryTree *) lfirst(lc);
-
-		if (keep)
-		{
-			printf("Keeping the state of (");
-			fprint_relids(stdout, tree->rel->relids);
-			printf(")\n");
-			Assert(tree->tmp != NULL);
-			tree->rel = tree->tmp;
-		}
-		tree->tmp = NULL;
+		Assert(tree->right != NULL);
+		tree->rel = NULL;
 	}
+	cleanup_tree(tree->left);
+	cleanup_tree(tree->right);
 }
 
-static bool
-compare_tree(PlannerInfo *root, QueryTree *tree)
-{
-	Assert(tree != NULL);
-	Assert(tree->tmp != NULL);
-	return (tree->tmp->cheapest_total_path->total_cost <
-			tree->rel->cheapest_total_path->total_cost);
-}
 
-static bool
-do_move(PlannerInfo *root, QueryTree *tree,
-		QueryTree *tree1, QueryTree *tree2)
+static void
+swap_subtrees(QueryTree *tree1, QueryTree *tree2)
 {
 	QueryTree	*parent1, *parent2;
-	List		*t1, *t2, *common;
-	bool 		ok;
 
 	Assert(tree1->parent != NULL);
 	Assert(tree2->parent != NULL);
@@ -300,110 +263,123 @@ do_move(PlannerInfo *root, QueryTree *tree,
 
 	tree1->parent = parent2;
 	tree2->parent = parent1;
+}
 
-	debug_dump_query_tree(root, tree, tree1, tree2, "/tmp/switched.dot");
+
+static Cost
+do_move(PlannerInfo *root, QueryTree *tree,
+		QueryTree *tree1, QueryTree *tree2,
+		int loops, Cost current_cost)
+{
+	List		*t1, *t2, *common;
+	bool 		ok;
+
+	char dump_before[NAMEDATALEN];
+	char dump_middle[NAMEDATALEN];
+	char dump_after[NAMEDATALEN];
+
+	int			savelength;
+	struct HTAB *savehash;
+
+	snprintf(dump_before, NAMEDATALEN, "/tmp/before-move-%d.dot", loops);
+	snprintf(dump_middle, NAMEDATALEN, "/tmp/middle-move-%d.dot", loops);
+	snprintf(dump_after, NAMEDATALEN, "/tmp/after-move-%d.dot", loops);
+
+	cleanup_tree(tree);
+
+	dump_query_tree(root, tree, tree1, tree2, dump_before);
+
+	swap_subtrees(tree1, tree2);
 
 	t1 = get_parents(tree1, true);
 	t2 = get_parents(tree2, true);
 	common = list_intersection_ptr(t1, t2);
 
-	debug_print_query_tree_list("t1: ", t1);
-	debug_print_query_tree_list("t2: ", t2);
-	debug_print_query_tree_list("common: ", common);
-
 	t1 = list_difference_ptr(t1, common);
 
-	debug_print_query_tree_list("t1 - common: ", t1);
+	savelength = list_length(root->join_rel_list);
+	savehash = root->join_rel_hash;
+	Assert(root->join_rel_level == NULL);
 
-	ok = recalculate_trees(root, t1);
+	root->join_rel_hash = NULL;
+
+	ok = recalculate_tree(root, tree);
+
+	root->join_rel_list = list_truncate(root->join_rel_list,
+										savelength);
+	root->join_rel_hash = savehash;
+
+	dump_query_tree(root, tree, tree1, tree2, dump_middle);
+
 	if (ok)
-		ok = recalculate_trees(root, t2);
-
-	if (ok)
-		ok = compare_tree(root, tree);
-
-	printf("Keeping the state: %d\n", ok);
-	cleanup_tmp_path(t1, ok);
-	cleanup_tmp_path(t2, ok);
-
-	if (!ok)
 	{
-		tree1->parent = parent1;
-		tree2->parent = parent2;
-
-		if (parent1->left == tree2)
-			parent1->left = tree1;
-		else
-			parent1->right = tree1;
-
-		if (parent2->left == tree1)
-			parent2->left = tree2;
-		else
-			parent2->right = tree2;
+		Assert(tree->rel != NULL);
+		printf("Cost after move: %.2f\n", tree->rel->cheapest_total_path->total_cost);
+		ok = (tree->rel->cheapest_total_path->total_cost < current_cost);
 	}
 
-	return ok;
+	printf("Keeping the state: %d\n", ok);
+
+	if (!ok)
+		swap_subtrees(tree2, tree1);
+
+	dump_query_tree(root, tree, tree1, tree2, dump_after);
+
+	return ok ? tree->rel->cheapest_total_path->total_cost : current_cost;
 }
 
 
-#define CUTOFF 30
-
-static QueryTree *
+static void
 saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 {
 	List		*choices, *tmp;
+	Cost		current_cost;
 	QueryTree	*tree1, *tree2;
 	int			loops;
-	bool		ok;
 
 	if (list_length(all_trees) == 1)
-		return tree;
+		return;
 
 	loops = 0;
 
-	debug_print_query_tree_list("All trees: ", all_trees);
+	print_query_tree_list("All trees: ", all_trees);
 
-	while (loops++ < CUTOFF)
+	Assert(tree->rel != NULL);
+	current_cost = tree->rel->cheapest_total_path->total_cost;
+
+	while (loops++ < saio_cutoff)
 	{
-		char dump_before[NAMEDATALEN];
-		char dump_after[NAMEDATALEN];
-
-		snprintf(dump_before, NAMEDATALEN, "/tmp/before-move-%d.dot", loops);
-		snprintf(dump_after, NAMEDATALEN, "/tmp/after-move-%d.dot", loops);
+		printf("Loop %d, current cost cost: %.2f\n", loops, current_cost);
 
 		choices = list_copy(all_trees);
 		choices = list_delete_ptr(choices, llast(choices));
 
-		debug_print_query_tree_list("Choices for first node: ", choices);
+		print_query_tree_list("Choices for first node: ", choices);
 
 		tree1 = list_nth(choices, random() % list_length(choices));
 
-		debug_print_query_tree_list("First node: ", list_make1(tree1));
+		print_query_tree_list("First node: ", list_make1(tree1));
 
 		tmp = get_tree_subtree(tree1);
 		tmp = list_concat_unique_ptr(get_parents(tree1, false), tmp);
 		tmp = list_concat_unique_ptr(get_siblings(tree1), tmp);
 		choices = list_difference_ptr(choices, tmp);
 
-		debug_print_query_tree_list("Choices for second node: ", choices);
+		print_query_tree_list("Choices for second node: ", choices);
 
 		if (choices == NIL)
-			return tree;
+			continue;
 
 		tree2 = list_nth(choices, random() % list_length(choices));
 
-		debug_print_query_tree_list("Second node: ", list_make1(tree2));
-		debug_dump_query_tree(root, tree, tree1, tree2, dump_before);
+		print_query_tree_list("Second node: ", list_make1(tree2));
 
 		printf("Move starting\n");
-		ok = do_move(root, tree, tree1, tree2);
+		current_cost = do_move(root, tree, tree1, tree2, loops, current_cost);
 		printf("Move finished\n");
 
-		debug_dump_query_tree(root, tree, tree1, tree2, dump_after);
 		printf("Dump finished\n");
 	}
-
-	return tree;
 }
 
 RelOptInfo *saio(PlannerInfo *root, int levels_needed, List *initial_rels)
@@ -411,18 +387,33 @@ RelOptInfo *saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	RelOptInfo	*res;
 	QueryTree	*tree;
 	List		*all_trees;
+	int			savelength;
+	struct HTAB *savehash;
+
+	savelength = list_length(root->join_rel_list);
+	savehash = root->join_rel_hash;
+	Assert(root->join_rel_level == NULL);
 
 	tree = make_query_tree(root, initial_rels);
 
+	Assert(tree->rel != NULL);
+
+	root->join_rel_list = list_truncate(root->join_rel_list,
+										savelength);
+	root->join_rel_hash = savehash;
+
 	all_trees = get_tree_subtree(tree);
 
-	debug_dump_query_tree(root, tree, NULL, NULL, "/tmp/original.dot");
+	dump_query_tree(root, tree, NULL, NULL, "/tmp/original.dot");
 
-	tree = saio_move(root, tree, all_trees);
+	saio_move(root, tree, all_trees);
 
-	debug_dump_query_tree(root, tree, NULL, NULL, "/tmp/final.dot");
+	cleanup_tree(tree);
+	recalculate_tree(root, tree);
 
-	debug_verify_query_tree(tree);
+	Assert(tree->rel != NULL);
+
+	dump_query_tree(root, tree, NULL, NULL, "/tmp/final.dot");
 
 	res = tree->rel;
 

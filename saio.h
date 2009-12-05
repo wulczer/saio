@@ -16,12 +16,13 @@
 #include "postgres.h"
 
 #include "nodes/pg_list.h"
+#include "nodes/bitmapset.h"
 #include "optimizer/paths.h"
 
+extern int saio_cutoff;
 
 typedef struct QueryTree {
 	RelOptInfo			*rel;
-	RelOptInfo			*tmp;
 	struct QueryTree	*left;
 	struct QueryTree	*right;
 	struct QueryTree	*parent;

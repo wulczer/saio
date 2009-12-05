@@ -4,19 +4,13 @@
 #include "saio.h"
 #include "optimizer/paths.h"
 
-void fprint_relids(FILE *f, Relids relids);
+void fprintf_relids(FILE *f, Relids relids);
 
-void debug_print_rel(PlannerInfo *root, RelOptInfo *rel);
+void dump_query_tree(PlannerInfo *root, QueryTree *tree, QueryTree *selected1,
+					 QueryTree *selected2, char *path);
 
-void debug_dump_query_tree(PlannerInfo *root, QueryTree *tree, QueryTree
-						   *selected1, QueryTree *selected2, char *path);
+void verify_query_tree(QueryTree *tree);
 
-void debug_dump_query_tree_selected(PlannerInfo *root, QueryTree *tree,
-									QueryTree *selected1, QueryTree *selected2,
-									char *path);
-
-void debug_verify_query_tree(QueryTree *tree);
-
-void debug_print_query_tree_list(char *intro, List *trees);
+void print_query_tree_list(char *intro, List *trees);
 
 #endif /* SAIO_DEBUG_H */
