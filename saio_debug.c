@@ -113,31 +113,24 @@ dump_query_tree(PlannerInfo *root, QueryTree *tree, QueryTree *selected1,
 }
 
 
-static void
-verify_query_tree_rec(QueryTree *tree, QueryTree *left, QueryTree *right)
+void dump_costs(PlannerInfo *root, char *path)
 {
-	if (left == NULL)
+	SAIOPrivate	*private;
+	ListCell	*lc;
+	FILE	*f;
+
+	f = fopen(path, "w");
+	fprintf(f, "plot '-'\n");
+
+	private = (SAIOPrivate *) root->join_search_private;
+
+	foreach(lc, private->costs)
 	{
-		Assert(right == NULL);
-		Assert(tree->rel != NULL);
-		return;
+		Cost	*cost = (Cost *) lfirst(lc);
+
+		fprintf(f, "%f\n", *cost);
 	}
-	Assert(right != NULL);
-	Assert(tree->rel == NULL);
-
-	Assert(left->parent == tree);
-	Assert(right->parent == tree);
-
-	verify_query_tree_rec(left, left->left, left->right);
-	verify_query_tree_rec(right, right->left, right->right);
-}
-
-
-void
-verify_query_tree(QueryTree *tree)
-{
-	Assert(tree->parent == NULL);
-	verify_query_tree_rec(tree, tree->left, tree->right);
+	fclose(f);
 }
 
 

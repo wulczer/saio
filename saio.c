@@ -336,6 +336,8 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 	Cost		current_cost;
 	QueryTree	*tree1, *tree2;
 	int			loops;
+	SAIOPrivate	*private;
+	Cost		*ccost;
 
 	if (list_length(all_trees) == 1)
 		return;
@@ -347,10 +349,15 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 	Assert(tree->rel != NULL);
 	current_cost = tree->rel->cheapest_total_path->total_cost;
 
+	private = (SAIOPrivate *) root->join_search_private;
+	ccost = (Cost *) palloc(sizeof(Cost));
+	*ccost = current_cost;
+	private->costs = lappend(private->costs, ccost);
+
 	while (loops++ < saio_cutoff)
 	{
-		printf("Loop %d, current cost cost: %.2f\n", loops, current_cost);
 
+		printf("Loop %d, current cost cost: %.2f\n", loops, current_cost);
 		choices = list_copy(all_trees);
 		choices = list_delete_ptr(choices, llast(choices));
 
@@ -376,6 +383,12 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 
 		printf("Move starting\n");
 		current_cost = do_move(root, tree, tree1, tree2, loops, current_cost);
+
+		private = (SAIOPrivate *) root->join_search_private;
+		ccost = (Cost *) palloc(sizeof(Cost));
+		*ccost = current_cost;
+		private->costs = lappend(private->costs, ccost);
+
 		printf("Move finished\n");
 
 		printf("Dump finished\n");
@@ -389,6 +402,10 @@ RelOptInfo *saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	List		*all_trees;
 	int			savelength;
 	struct HTAB *savehash;
+	SAIOPrivate	private;
+
+	root->join_search_private = (void *) &private;
+	private.costs = NIL;
 
 	savelength = list_length(root->join_rel_list);
 	savehash = root->join_rel_hash;
@@ -414,6 +431,8 @@ RelOptInfo *saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	Assert(tree->rel != NULL);
 
 	dump_query_tree(root, tree, NULL, NULL, "/tmp/final.dot");
+
+	dump_costs(root, "/tmp/costs");
 
 	res = tree->rel;
 

@@ -29,6 +29,11 @@ typedef struct QueryTree {
 } QueryTree;
 
 
+typedef struct SAIOPrivate {
+	List	*costs;
+} SAIOPrivate;
+
+
 RelOptInfo *saio(PlannerInfo *root, int levels_needed, List *initial_rels);
 
 void _PG_init(void);
