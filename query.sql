@@ -1,9 +1,9 @@
 explain select * from
-	tenk1 a1,
-	tenk1 b1,
-	tenk1 c1,
-	tenk1 d1,
-	tenk1 e1,
-	tenk1 f1
+	tenk1 t1,
+	tenk1 t2,
+	tenk1 center,
+	tenk1 t3,
+	tenk1 t4,
+	tenk1 t5
 where
-	a1.thousand = c1.thousand and b1.thousand = c1.thousand and d1.thousand = c1.thousand and e1.thousand = c1.thousand and f1.thousand = c1.thousand;
+	t1.thousand = center.thousand and t2.twothousand = center.twothousand and t3.fivethous = center.fivethous and t4.tenthous = center.tenthous and t5.hundred = center.hundred;
