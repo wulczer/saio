@@ -16,6 +16,7 @@
 #include "nodes/pg_list.h"
 #include "optimizer/paths.h"
 #include "optimizer/pathnode.h"
+#include "optimizer/joininfo.h"
 
 #include "saio_debug.h"
 #include "saio.h"
@@ -41,8 +42,25 @@ list_intersection_ptr(List *list1, List *list2)
 }
 
 
+/* verbatim copy from geqo_eval.c */
+static bool
+desirable_join(PlannerInfo *root,
+			   RelOptInfo *outer_rel, RelOptInfo *inner_rel)
+{
+	/*
+	 * Join if there is an applicable join clause, or if there is a join order
+	 * restriction forcing these rels to be joined.
+	 */
+	if (have_relevant_joinclause(root, outer_rel, inner_rel) ||
+		have_join_order_restriction(root, outer_rel, inner_rel))
+		return true;
+
+	/* Otherwise postpone the join till later. */
+	return false;
+}
+
 static List *
-merge_trees(PlannerInfo *root, List *result, QueryTree *tree)
+merge_trees(PlannerInfo *root, List *result, QueryTree *tree, bool force)
 {
 	ListCell	*prev;
 	ListCell	*lc;
@@ -51,29 +69,33 @@ merge_trees(PlannerInfo *root, List *result, QueryTree *tree)
 	foreach(lc, result)
 	{
 		QueryTree	*other_tree = (QueryTree *) lfirst(lc);
-		RelOptInfo	*joinrel;
 
-		joinrel = make_join_rel(root, other_tree->rel, tree->rel);
-
-		if (joinrel)
+		if (force || desirable_join(root, other_tree->rel, tree->rel))
 		{
-			QueryTree	*new_tree;
+			RelOptInfo	*joinrel;
 
-			new_tree = (QueryTree *) palloc0(sizeof(QueryTree));
+			joinrel = make_join_rel(root, other_tree->rel, tree->rel);
 
-			new_tree->rel = joinrel;
+			if (joinrel)
+			{
+				QueryTree	*new_tree;
 
-			new_tree->left = other_tree;
-			other_tree->parent = new_tree;
+				new_tree = (QueryTree *) palloc0(sizeof(QueryTree));
 
-			new_tree->right = tree;
-			tree->parent = new_tree;
+				new_tree->rel = joinrel;
 
-			set_cheapest(joinrel);
+				new_tree->left = other_tree;
+				other_tree->parent = new_tree;
 
-			result = list_delete_cell(result, lc, prev);
+				new_tree->right = tree;
+				tree->parent = new_tree;
 
-			return merge_trees(root, result, new_tree);
+				set_cheapest(joinrel);
+
+				result = list_delete_cell(result, lc, prev);
+
+				return merge_trees(root, result, new_tree, force);
+			}
 		}
 		prev = lc;
 	}
@@ -99,7 +121,24 @@ make_query_tree(PlannerInfo *root, List *initial_rels)
 		tree = (QueryTree *) palloc0(sizeof(QueryTree));
 		tree->rel = rel;
 
-		result = merge_trees(root, result, tree);
+		/* Merge it into the trees list using only desirable joins */
+		result = merge_trees(root, result, tree, false);
+	}
+
+	if (list_length(result) > 1)
+	{
+		/* Force-join the remaining trees in some legal order */
+		List	   *fresult;
+		ListCell   *flc;
+
+		fresult = NIL;
+		foreach(flc, result)
+		{
+			QueryTree	*tree = (QueryTree *) lfirst(flc);
+
+			fresult = merge_trees(root, fresult, tree, true);
+		}
+		result = fresult;
 	}
 
 	/* Did we succeed in forming a single join relation? */
