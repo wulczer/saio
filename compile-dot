@@ -1,0 +1,5 @@
+#!/bin/bash
+
+for i in /tmp/*.dot; do
+    dot -Tpng -o ${i/dot/png} $i
+done
