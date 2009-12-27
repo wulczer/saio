@@ -1,0 +1,3 @@
+ * consider ordering the list of trees in merge_trees to keep the
+   biggest tree at the beginning, to mimick merge_clump from GEQO more
+   closely
