@@ -80,6 +80,8 @@ merge_trees(PlannerInfo *root, List *result, QueryTree *tree, bool force)
 			{
 				QueryTree	*new_tree;
 
+				trace_join("/tmp/trace-merge", other_tree->rel, tree->rel);
+
 				new_tree = (QueryTree *) palloc0(sizeof(QueryTree));
 
 				new_tree->rel = joinrel;
@@ -220,7 +222,7 @@ recalculate_tree(PlannerInfo *root, QueryTree *tree)
 	bool		ok;
 
 	Assert(tree != NULL);
-	Assert(tree->left != NULL);
+	Assert(tree->right != NULL);
 	Assert(tree->right != NULL);
 
 	ok = true;
@@ -241,20 +243,22 @@ recalculate_tree(PlannerInfo *root, QueryTree *tree)
 	if (!ok)
 		return false;
 
-	printf("Recalculating: left = (");
+	debug_printf("Recalculating: left = (");
 	fprintf_relids(stdout, tree->left->rel->relids);
-	printf(") right = (");
+	debug_printf(") right = (");
 	fprintf_relids(stdout, tree->right->rel->relids);
-	printf(")\n");
+	debug_printf(")\n");
 
 	joinrel = make_join_rel(root, tree->left->rel, tree->right->rel);
 	if (joinrel == NULL)
 		return false;
 
+	trace_join("/tmp/trace-rebuild", tree->left->rel, tree->right->rel);
+
 	set_cheapest(joinrel);
-	printf("Built joinrel for (");
+	debug_printf("Built joinrel for (");
 	fprintf_relids(stdout, joinrel->relids);
-	printf(") with cheapest path is %.2f\n", joinrel->cheapest_total_path->total_cost);
+	debug_printf(") with cheapest path is %.2f\n", joinrel->cheapest_total_path->total_cost);
 
 	tree->rel = joinrel;
 
@@ -271,6 +275,10 @@ cleanup_tree(QueryTree *tree)
 	{
 		Assert(tree->right != NULL);
 		tree->rel = NULL;
+	}
+	else
+	{
+		Assert(tree->right == NULL);
 	}
 	cleanup_tree(tree->left);
 	cleanup_tree(tree->right);
@@ -338,9 +346,8 @@ do_move(PlannerInfo *root, QueryTree *tree,
 
 	savelength = list_length(root->join_rel_list);
 	savehash = root->join_rel_hash;
-	Assert(root->join_rel_level == NULL);
-
 	root->join_rel_hash = NULL;
+	Assert(root->join_rel_level == NULL);
 
 	ok = recalculate_tree(root, tree);
 
@@ -353,14 +360,31 @@ do_move(PlannerInfo *root, QueryTree *tree,
 	if (ok)
 	{
 		Assert(tree->rel != NULL);
-		printf("Cost after move: %.2f\n", tree->rel->cheapest_total_path->total_cost);
+		debug_printf("Cost after move: %.2f\n", tree->rel->cheapest_total_path->total_cost);
 		ok = (tree->rel->cheapest_total_path->total_cost < current_cost);
+		if (ok)
+			elog(NOTICE, "Found a better plan, old cost %.2f new cost %.2f",
+				 current_cost, tree->rel->cheapest_total_path->total_cost);
+
 	}
 
-	printf("Keeping the state: %d\n", ok);
+	debug_printf("Keeping the state: %d\n", ok);
 
 	if (!ok)
+	{
 		swap_subtrees(tree2, tree1);
+		cleanup_tree(tree);
+
+		savelength = list_length(root->join_rel_list);
+		savehash = root->join_rel_hash;
+		root->join_rel_hash = NULL;
+
+		recalculate_tree(root, tree);
+
+		root->join_rel_list = list_truncate(root->join_rel_list,
+											savelength);
+		root->join_rel_hash = savehash;
+	}
 
 	dump_query_tree(root, tree, tree1, tree2, dump_after);
 
@@ -396,7 +420,7 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 	while (loops++ < saio_cutoff)
 	{
 
-		printf("Loop %d, current cost cost: %.2f\n", loops, current_cost);
+		debug_printf("Loop %d, current cost cost: %.2f\n", loops, current_cost);
 		choices = list_copy(all_trees);
 		choices = list_delete_ptr(choices, llast(choices));
 
@@ -420,7 +444,7 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 
 		print_query_tree_list("Second node: ", list_make1(tree2));
 
-		printf("Move starting\n");
+		debug_printf("Move starting\n");
 		current_cost = do_move(root, tree, tree1, tree2, loops, current_cost);
 
 		private = (SAIOPrivate *) root->join_search_private;
@@ -428,11 +452,10 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 		*ccost = current_cost;
 		private->costs = lappend(private->costs, ccost);
 
-		printf("Move finished\n");
-
-		printf("Dump finished\n");
+		debug_printf("Move finished\n");
 	}
 }
+
 
 RelOptInfo *saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 {
@@ -441,25 +464,26 @@ RelOptInfo *saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	List		*all_trees;
 	int			savelength;
 	struct HTAB *savehash;
-	SAIOPrivate	private;
+	SAIOPrivate	*private;
 
-	root->join_search_private = (void *) &private;
-	private.costs = NIL;
+	private = palloc0(sizeof(SAIOPrivate));
+	private->costs = NIL;
+
+	root->join_search_private = (void *) private;
 
 	savelength = list_length(root->join_rel_list);
 	savehash = root->join_rel_hash;
 	Assert(root->join_rel_level == NULL);
+	root->join_rel_hash = NULL;
 
 	tree = make_query_tree(root, initial_rels);
-
-	Assert(tree->rel != NULL);
 
 	root->join_rel_list = list_truncate(root->join_rel_list,
 										savelength);
 	root->join_rel_hash = savehash;
 
+	Assert(tree->rel != NULL);
 	all_trees = get_tree_subtree(tree);
-
 	dump_query_tree(root, tree, NULL, NULL, "/tmp/original.dot");
 
 	saio_move(root, tree, all_trees);
@@ -470,7 +494,6 @@ RelOptInfo *saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	Assert(tree->rel != NULL);
 
 	dump_query_tree(root, tree, NULL, NULL, "/tmp/final.dot");
-
 	dump_costs(root, "/tmp/costs");
 
 	res = tree->rel;
