@@ -22,6 +22,65 @@
 #include "saio.h"
 
 
+/*
+ * Initialize the context under which join order. It will keep the state of
+ * variables that get modified during planning and have to be reset to their
+ * original state when the joining ends;
+ *
+ * It also holds a sketch memory context that will hold all memory allocations
+ * done during considering a given join order. Since we are going to consider
+ * lots of them, we need to free the memory after each try.
+ *
+ * See geqo_eval() for similar code and explanations.
+ */
+static void
+context_init(SAIOJoinOrderContext *ctx)
+{
+	ctx->sketch_context = AllocSetContextCreate(CurrentMemoryContext,
+												"SAIO",
+												ALLOCSET_DEFAULT_MINSIZE,
+												ALLOCSET_DEFAULT_INITSIZE,
+												ALLOCSET_DEFAULT_MAXSIZE);
+}
+
+
+/*
+ * Save the current state of the variables that get modified during
+ * make_join_rel(). Enter a temporary memory context that will get reset when
+ * we leave the context.
+ */
+static void
+context_enter(PlannerInfo *root, SAIOJoinOrderContext *ctx)
+{
+	/* join_rel_list and join_rel_hash get added to in make_join_rel() */
+	ctx->savelength = list_length(root->join_rel_list);
+	ctx->savehash = root->join_rel_hash;
+	/* if a hash has already been built, we need to get rid of it */
+	root->join_rel_hash = NULL;
+
+	/* switch to the sketch context */
+	ctx->old_context = MemoryContextSwitchTo(ctx->sketch_context);
+}
+
+
+/*
+ * Restore the state and reclaim memory.
+ */
+static void
+context_exit(PlannerInfo *root, SAIOJoinOrderContext *ctx)
+{
+	/* restore join_rel_list and join_rel_hash */
+	root->join_rel_list = list_truncate(root->join_rel_list,
+										ctx->savelength);
+	root->join_rel_hash = ctx->savehash;
+
+	/* remove everything in the sketch context, but keep the context itself */
+	MemoryContextResetAndDeleteChildren(ctx->sketch_context);
+	/* switch back to the old context */
+	MemoryContextSwitchTo(ctx->old_context);
+}
+
+
 static List *
 list_intersection_ptr(List *list1, List *list2)
 {
@@ -59,52 +118,88 @@ desirable_join(PlannerInfo *root,
 	return false;
 }
 
+
+/*
+ * Merge a QueryTree into a list of QueryTrees by creating another tree that
+ * will have the given one as one child and one of the existing ones as the
+ * other child.
+ *
+ * Only considers creating joins that have join conditions, unless the force
+ * parameter is true. Based heavily on GEQO's merge_clump(), but does not
+ * maintain the invariant of having the list sorted by the size of the tree.
+ *
+ * Returns a new list of QueryTrees.
+ */
 static List *
 merge_trees(PlannerInfo *root, List *result, QueryTree *tree, bool force)
 {
 	ListCell	*prev;
 	ListCell	*lc;
 
+	/* Go through the trees and find one to join the new one */
 	prev = NULL;
 	foreach(lc, result)
 	{
 		QueryTree	*other_tree = (QueryTree *) lfirst(lc);
 
+		/* only choose ones that form a "desirable" join, unless forced */
 		if (force || desirable_join(root, other_tree->rel, tree->rel))
 		{
 			RelOptInfo	*joinrel;
 
+			/*
+			 * Try joining the relations. This can fail because of join order
+			 * restrictions or other restrictions.
+			 */
 			joinrel = make_join_rel(root, other_tree->rel, tree->rel);
 
 			if (joinrel)
 			{
 				QueryTree	*new_tree;
 
-				trace_join("/tmp/trace-merge", other_tree->rel, tree->rel);
-
+				/* Managed to construct the join, build a new QueryTree */
 				new_tree = (QueryTree *) palloc0(sizeof(QueryTree));
 
+				/*
+				 * The new tree's rel will be the relation that's just been
+				 * built, and the children will be the just-merged tree and the
+				 * one we took the other relation from.
+				 * It doesn't matter which one is right and which one is left,
+				 * because make_join_rel is symmetrical.
+				 */
 				new_tree->rel = joinrel;
-
 				new_tree->left = other_tree;
-				other_tree->parent = new_tree;
-
 				new_tree->right = tree;
+
+				/* set the parent link, too */
+				other_tree->parent = new_tree;
 				tree->parent = new_tree;
 
+				/* Find the cheapest path for the new relation */
 				set_cheapest(joinrel);
 
+				/* Remove the old tree from the list */
 				result = list_delete_cell(result, lc, prev);
 
+				/* Recursively merge the new tree into the list */
 				return merge_trees(root, result, new_tree, force);
 			}
 		}
 		prev = lc;
 	}
 
+	/* We don't care about the ordering, just add it at the beginning */
 	return lcons(tree, result);
 }
 
+
+/*
+ * Build a QueryTree from a list of RelOptInfos. The tree structure will
+ * reflect the order in which the rels are joined.
+ *
+ * Heavily based on GEQO's gimme_tree(). Note however, that it gets called only
+ * once in one SAIO algorithm execution.
+ */
 static QueryTree *
 make_query_tree(PlannerInfo *root, List *initial_rels)
 {
@@ -150,24 +245,32 @@ make_query_tree(PlannerInfo *root, List *initial_rels)
 	return (QueryTree *) linitial(result);
 }
 
+
+/* Recursive helper for get_tree_subtree() */
 static List *
-get_tree_subtree_rec(QueryTree *tree, List *res)
+get_all_nodes_rec(QueryTree *tree, List *res)
 {
 	if (tree == NULL)
 		return res;
 
 	res = lcons(tree, res);
-	get_tree_subtree_rec(tree->left, res);
-	get_tree_subtree_rec(tree->right, res);
+	get_all_nodes_rec(tree->left, res);
+	get_all_nodes_rec(tree->right, res);
 	return res;
 }
 
+
+/*
+ * Return a list of all nodes of in a tree.
+ */
 static List *
-get_tree_subtree(QueryTree *tree)
+get_all_nodes(QueryTree *tree)
 {
-	return get_tree_subtree_rec(tree, NIL);
+	return get_all_node_rec(tree, NIL);
 }
 
+
+/* Recursive helper for get_parents */
 static List *
 get_parents_rec(QueryTree *tree, bool reverse, List *res)
 {
@@ -184,6 +287,10 @@ get_parents_rec(QueryTree *tree, bool reverse, List *res)
 	return res;
 }
 
+
+/*
+ * Get all parents of a tree node, excluding the node itself.
+ */
 static List *
 get_parents(QueryTree *tree, bool reverse)
 {
@@ -191,6 +298,10 @@ get_parents(QueryTree *tree, bool reverse)
 }
 
 
+/*
+ * Get all siblings of a tree node. Since QueryTrees are binary, this will
+ * always be a one-element list.
+ */
 static List *
 get_siblings(QueryTree *tree)
 {
@@ -207,14 +318,19 @@ get_siblings(QueryTree *tree)
 
 	if (parent->left == tree)
 		return list_make1(parent->right);
-	if (parent->right == tree)
-		return list_make1(parent->left);
 
-	Assert(false);
-	return NIL; /* keep compiler quiet */
+	/* has to be the left child */
+	return list_make1(parent->left);
 }
 
 
+/*
+ * recalculate_tree
+ *    Rebuild the final relation in the order given by the input tree.
+ *
+ * Traverses the QueryTree in postorder and recreates upper-level joinrels from
+ * lower-level joinrels. The assumption is that leaf nodes have the XXX
+ */
 static bool
 recalculate_tree(PlannerInfo *root, QueryTree *tree)
 {
@@ -264,6 +380,7 @@ recalculate_tree(PlannerInfo *root, QueryTree *tree)
 
 	return true;
 }
+
 
 static void
 cleanup_tree(QueryTree *tree)
@@ -457,7 +574,8 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 }
 
 
-RelOptInfo *saio(PlannerInfo *root, int levels_needed, List *initial_rels)
+RelOptInfo *
+saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 {
 	RelOptInfo	*res;
 	QueryTree	*tree;
@@ -483,6 +601,9 @@ RelOptInfo *saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	root->join_rel_hash = savehash;
 
 	Assert(tree->rel != NULL);
+
+	private->temperature = tree->rel->cheapest_total_path->total_cost * 2;
+
 	all_trees = get_tree_subtree(tree);
 	dump_query_tree(root, tree, NULL, NULL, "/tmp/original.dot");
 

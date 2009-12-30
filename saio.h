@@ -21,6 +21,13 @@
 
 extern int saio_cutoff;
 
+typedef struct SAIOJoinOrderContext {
+	MemoryContext	old_context;
+	MemoryContext	sketch_context;
+	int				savelength;
+	struct HTAB		*savehash;
+} SAIOJoinOrderContext;
+
 typedef struct QueryTree {
 	RelOptInfo			*rel;
 	struct QueryTree	*left;
@@ -30,7 +37,8 @@ typedef struct QueryTree {
 
 
 typedef struct SAIOPrivate {
-	List	*costs;
+	List					*costs;
+	SAIOJoinOrderContext	*ctx;
 } SAIOPrivate;
 
 
