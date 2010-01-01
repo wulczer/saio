@@ -22,25 +22,9 @@
 #include "saio.h"
 
 
-/*
- * Initialize the context under which join order. It will keep the state of
- * variables that get modified during planning and have to be reset to their
- * original state when the joining ends;
- *
- * It also holds a sketch memory context that will hold all memory allocations
- * done during considering a given join order. Since we are going to consider
- * lots of them, we need to free the memory after each try.
- *
- * See geqo_eval() for similar code and explanations.
- */
 static void
-context_init(SAIOJoinOrderContext *ctx)
+context_init(SaioJoinOrderContext *ctx)
 {
-	ctx->sketch_context = AllocSetContextCreate(CurrentMemoryContext,
-												"SAIO",
-												ALLOCSET_DEFAULT_MINSIZE,
-												ALLOCSET_DEFAULT_INITSIZE,
-												ALLOCSET_DEFAULT_MAXSIZE);
 }
 
 
@@ -50,8 +34,12 @@ context_init(SAIOJoinOrderContext *ctx)
  * we leave the context.
  */
 static void
-context_enter(PlannerInfo *root, SAIOJoinOrderContext *ctx)
+context_enter(PlannerInfo *root)
 {
+	SaioContext			*ctx;
+
+	ctx = ((SaioPrivateData *) root->join_search_private)->ctx;
+
 	/* join_rel_list and join_rel_hash get added to in make_join_rel() */
 	ctx->savelength = list_length(root->join_rel_list);
 	ctx->savehash = root->join_rel_hash;
@@ -67,15 +55,19 @@ context_enter(PlannerInfo *root, SAIOJoinOrderContext *ctx)
  * Restore the state and reclaim memory.
  */
 static void
-context_exit(PlannerInfo *root, SAIOJoinOrderContext *ctx)
+context_exit(PlannerInfo *root)
 {
+	SaioContext			*ctx;
+
+	ctx = ((SaioPrivateData *) root->join_search_private)->ctx;
+
 	/* restore join_rel_list and join_rel_hash */
 	root->join_rel_list = list_truncate(root->join_rel_list,
 										ctx->savelength);
 	root->join_rel_hash = ctx->savehash;
 
 	/* remove everything in the sketch context, but keep the context itself */
-	MemoryContextResetAndDeleteChildren(ctx->sketch_context);
+	MemoryContextReset(ctx->sketch_context);
 	/* switch back to the old context */
 	MemoryContextSwitchTo(ctx->old_context);
 }
@@ -329,7 +321,14 @@ get_siblings(QueryTree *tree)
  *    Rebuild the final relation in the order given by the input tree.
  *
  * Traverses the QueryTree in postorder and recreates upper-level joinrels from
- * lower-level joinrels. The assumption is that leaf nodes have the XXX
+ * lower-level joinrels, starting at the leaves.
+ *
+ * If any of the intermidient joinrels cannot be constructed (because the tree
+ * does not represent a valid join ordering) return false, otherwise return
+ * true.
+ *
+ * If this function returns false, the tree is left in a dirty state, where the
+ * values of "rel" pointers in the non-leaf nodes can contain bogus values.
  */
 static bool
 recalculate_tree(PlannerInfo *root, QueryTree *tree)
@@ -337,51 +336,56 @@ recalculate_tree(PlannerInfo *root, QueryTree *tree)
 	RelOptInfo	*joinrel;
 	bool		ok;
 
+	/* we should never be called on an empty tree */
 	Assert(tree != NULL);
+
+	/* if it's a leaf, we're done */
+	if (tree->left == NULL)
+	{
+		Assert(tree->right == NULL);
+		return true;
+	}
+
+	/* it's not a leaf */
 	Assert(tree->right != NULL);
-	Assert(tree->right != NULL);
 
-	ok = true;
+	/* recurse to the left child */
+	ok = recalculate_tree(root, tree->left);
 
-	if (tree->left->rel == NULL)
-		ok = recalculate_tree(root, tree->left);
-
+	/* it either failed or computed the left child's rel */
 	Assert(!ok || (tree->left->rel != NULL));
 
+	/* short-circuit the computation on failure*/
 	if (!ok)
 		return false;
 
-	if (tree->right->rel == NULL)
-		ok = recalculate_tree(root, tree->right);
+	/* recurse to the right child */
+	ok = recalculate_tree(root, tree->right);
 
+	/* it either failed or computed the left child's rel */
 	Assert(!ok || (tree->left->rel != NULL));
 
+	/* short-circuit the computation on failure*/
 	if (!ok)
 		return false;
 
-	debug_printf("Recalculating: left = (");
-	fprintf_relids(stdout, tree->left->rel->relids);
-	debug_printf(") right = (");
-	fprintf_relids(stdout, tree->right->rel->relids);
-	debug_printf(")\n");
-
+	/* try to join the children's relations */
 	joinrel = make_join_rel(root, tree->left->rel, tree->right->rel);
-	if (joinrel == NULL)
-		return false;
 
-	trace_join("/tmp/trace-rebuild", tree->left->rel, tree->right->rel);
+	if (joinrel)
+	{
+		/* constructed the joinrel, compute its paths and store it */
+		set_cheapest(joinrel);
+		tree->rel = joinrel;
+		return true;
+	}
 
-	set_cheapest(joinrel);
-	debug_printf("Built joinrel for (");
-	fprintf_relids(stdout, joinrel->relids);
-	debug_printf(") with cheapest path is %.2f\n", joinrel->cheapest_total_path->total_cost);
-
-	tree->rel = joinrel;
-
-	return true;
+	/* failed to build the joinrel */
+	return false;
 }
 
 
+/* probably not needed */
 static void
 cleanup_tree(QueryTree *tree)
 {
@@ -402,18 +406,25 @@ cleanup_tree(QueryTree *tree)
 }
 
 
+/* Swap two subtrees around.*/
 static void
 swap_subtrees(QueryTree *tree1, QueryTree *tree2)
 {
 	QueryTree	*parent1, *parent2;
 
+	/* can't swap the root node with anything */
 	Assert(tree1->parent != NULL);
 	Assert(tree2->parent != NULL);
 
+	/*
+	 * Since make_join_rel() is symmetrical, it doesn't make sense to swap
+	 * sibling nodes.
+	 */
+	Assert(tree1->parent != tree2->parent);
+
+	/* Do the swap */
 	parent1 = tree1->parent;
 	parent2 = tree2->parent;
-
-	Assert(parent1 != parent2);
 
 	if (parent1->left == tree1)
 		parent1->left = tree2;
@@ -427,85 +438,6 @@ swap_subtrees(QueryTree *tree1, QueryTree *tree2)
 
 	tree1->parent = parent2;
 	tree2->parent = parent1;
-}
-
-
-static Cost
-do_move(PlannerInfo *root, QueryTree *tree,
-		QueryTree *tree1, QueryTree *tree2,
-		int loops, Cost current_cost)
-{
-	List		*t1, *t2, *common;
-	bool 		ok;
-
-	char dump_before[NAMEDATALEN];
-	char dump_middle[NAMEDATALEN];
-	char dump_after[NAMEDATALEN];
-
-	int			savelength;
-	struct HTAB *savehash;
-
-	snprintf(dump_before, NAMEDATALEN, "/tmp/before-move-%d.dot", loops);
-	snprintf(dump_middle, NAMEDATALEN, "/tmp/middle-move-%d.dot", loops);
-	snprintf(dump_after, NAMEDATALEN, "/tmp/after-move-%d.dot", loops);
-
-	cleanup_tree(tree);
-
-	dump_query_tree(root, tree, tree1, tree2, dump_before);
-
-	swap_subtrees(tree1, tree2);
-
-	t1 = get_parents(tree1, true);
-	t2 = get_parents(tree2, true);
-	common = list_intersection_ptr(t1, t2);
-
-	t1 = list_difference_ptr(t1, common);
-
-	savelength = list_length(root->join_rel_list);
-	savehash = root->join_rel_hash;
-	root->join_rel_hash = NULL;
-	Assert(root->join_rel_level == NULL);
-
-	ok = recalculate_tree(root, tree);
-
-	root->join_rel_list = list_truncate(root->join_rel_list,
-										savelength);
-	root->join_rel_hash = savehash;
-
-	dump_query_tree(root, tree, tree1, tree2, dump_middle);
-
-	if (ok)
-	{
-		Assert(tree->rel != NULL);
-		debug_printf("Cost after move: %.2f\n", tree->rel->cheapest_total_path->total_cost);
-		ok = (tree->rel->cheapest_total_path->total_cost < current_cost);
-		if (ok)
-			elog(NOTICE, "Found a better plan, old cost %.2f new cost %.2f",
-				 current_cost, tree->rel->cheapest_total_path->total_cost);
-
-	}
-
-	debug_printf("Keeping the state: %d\n", ok);
-
-	if (!ok)
-	{
-		swap_subtrees(tree2, tree1);
-		cleanup_tree(tree);
-
-		savelength = list_length(root->join_rel_list);
-		savehash = root->join_rel_hash;
-		root->join_rel_hash = NULL;
-
-		recalculate_tree(root, tree);
-
-		root->join_rel_list = list_truncate(root->join_rel_list,
-											savelength);
-		root->join_rel_hash = savehash;
-	}
-
-	dump_query_tree(root, tree, tree1, tree2, dump_after);
-
-	return ok ? tree->rel->cheapest_total_path->total_cost : current_cost;
 }
 
 
@@ -577,47 +509,60 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 RelOptInfo *
 saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 {
-	RelOptInfo	*res;
-	QueryTree	*tree;
-	List		*all_trees;
-	int			savelength;
-	struct HTAB *savehash;
-	SAIOPrivate	*private;
+	QueryTree		*tree;
+	List			*all_trees;
+	SaioPrivateData	private;
+	SaioContext		ctx;
 
-	private = palloc0(sizeof(SAIOPrivate));
-	private->costs = NIL;
+	/* initialize private data */
+	root->join_search_private = (void *) &private;
 
-	root->join_search_private = (void *) private;
+	private.costs = NIL;
+	private.ctx = ctx;
 
-	savelength = list_length(root->join_rel_list);
-	savehash = root->join_rel_hash;
-	Assert(root->join_rel_level == NULL);
-	root->join_rel_hash = NULL;
+	/*
+	 * Make the sketch context a child of the current context, so it gets
+	 * cleaned automatically in case of a ereport(ERROR) exit.
+	 */
+	ctx.sketch_context = AllocSetContextCreate(CurrentMemoryContext,
+											   "SAIO",
+											   ALLOCSET_DEFAULT_MINSIZE,
+											   ALLOCSET_DEFAULT_INITSIZE,
+											   ALLOCSET_DEFAULT_MAXSIZE);
 
+	/*
+	 * Build a query tree from the initial relations. This should a tree that
+	 * represents any valid join order for the given set of rels.
+	 * Do it in a sketch context to avoid polluting root->join_rel_list and
+	 * root->join_rel_hash.
+	 */
+	context_enter(root);
 	tree = make_query_tree(root, initial_rels);
-
-	root->join_rel_list = list_truncate(root->join_rel_list,
-										savelength);
-	root->join_rel_hash = savehash;
+	context_exit(root);
 
 	Assert(tree->rel != NULL);
 
-	private->temperature = tree->rel->cheapest_total_path->total_cost * 2;
-
+	/*
+	 * Get the list of all trees to then pick randomly from them when doing SA
+	 * algorithm moves.
+	 */
 	all_trees = get_tree_subtree(tree);
-	dump_query_tree(root, tree, NULL, NULL, "/tmp/original.dot");
 
-	saio_move(root, tree, all_trees);
+	do
+	{
+		do
+		{
+			tree = saio_move(root, tree, all_trees);
+			while (!equilibrium(root));
+		}
+		reduce_temperature(root);
+	} while (!frozen(root));
 
-	cleanup_tree(tree);
+
+	/* Rebuild the final rel in the correct memory context */
 	recalculate_tree(root, tree);
 
 	Assert(tree->rel != NULL);
 
-	dump_query_tree(root, tree, NULL, NULL, "/tmp/final.dot");
-	dump_costs(root, "/tmp/costs");
-
-	res = tree->rel;
-
-	return res;
+	return tree->rel;
 }
