@@ -13,6 +13,7 @@
 
 #include "postgres.h"
 
+#include "utils/memutils.h"
 #include "nodes/pg_list.h"
 #include "optimizer/paths.h"
 #include "optimizer/pathnode.h"
@@ -20,12 +21,6 @@
 
 #include "saio_debug.h"
 #include "saio.h"
-
-
-static void
-context_init(SaioJoinOrderContext *ctx)
-{
-}
 
 
 /*
@@ -52,7 +47,7 @@ context_enter(PlannerInfo *root)
 
 
 /*
- * Restore the state and reclaim memory.
+ * Restore the state, reset the sketch memory context.
  */
 static void
 context_exit(PlannerInfo *root)
@@ -238,7 +233,7 @@ make_query_tree(PlannerInfo *root, List *initial_rels)
 }
 
 
-/* Recursive helper for get_tree_subtree() */
+/* Recursive helper for get_all_nodes_rec() */
 static List *
 get_all_nodes_rec(QueryTree *tree, List *res)
 {
@@ -258,7 +253,7 @@ get_all_nodes_rec(QueryTree *tree, List *res)
 static List *
 get_all_nodes(QueryTree *tree)
 {
-	return get_all_node_rec(tree, NIL);
+	return get_all_nodes_rec(tree, NIL);
 }
 
 
@@ -313,6 +308,34 @@ get_siblings(QueryTree *tree)
 
 	/* has to be the left child */
 	return list_make1(parent->left);
+}
+
+
+/*
+ * Copy a query tree ignoring non-leaf rels. Used to transfer a tree to a
+ * different memory context.
+ */
+static QueryTree *
+copy_tree_structure(QueryTree *tree)
+{
+	QueryTree *res;
+
+	/* copying an empty tree is easy */
+	if (tree == NULL)
+		return NULL;
+
+	/* tree is nonempty, create the current node */
+	res = (QueryTree *) palloc(sizeof(QueryTree));
+
+	/* for leaf nodes, copy the rel */
+	if (tree->left == NULL)
+		res->rel = tree->rel;
+
+	/* copy the children */
+	res->right = copy_tree_structure(tree->right);
+	res->left = copy_tree_structure(tree->left);
+
+	return res;
 }
 
 
@@ -385,28 +408,9 @@ recalculate_tree(PlannerInfo *root, QueryTree *tree)
 }
 
 
-/* probably not needed */
-static void
-cleanup_tree(QueryTree *tree)
-{
-	if (tree == NULL)
-		return;
 
-	if (tree->left != NULL)
-	{
-		Assert(tree->right != NULL);
-		tree->rel = NULL;
-	}
-	else
-	{
-		Assert(tree->right == NULL);
-	}
-	cleanup_tree(tree->left);
-	cleanup_tree(tree->right);
-}
+/* Swap two subtrees around. */
 
-
-/* Swap two subtrees around.*/
 static void
 swap_subtrees(QueryTree *tree1, QueryTree *tree2)
 {
@@ -441,18 +445,20 @@ swap_subtrees(QueryTree *tree1, QueryTree *tree2)
 }
 
 
-static void
+static QueryTree *
 saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 {
-	List		*choices, *tmp;
-	Cost		current_cost;
-	QueryTree	*tree1, *tree2;
-	int			loops;
-	SAIOPrivate	*private;
-	Cost		*ccost;
+	List			*choices, *tmp;
+	Cost			current_cost;
+	QueryTree		*tree1, *tree2;
+	int				loops;
+	SaioPrivateData	*private;
+	Cost			*ccost;
 
 	if (list_length(all_trees) == 1)
-		return;
+		return tree;
+
+	return tree;
 
 	loops = 0;
 
@@ -461,7 +467,7 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 	Assert(tree->rel != NULL);
 	current_cost = tree->rel->cheapest_total_path->total_cost;
 
-	private = (SAIOPrivate *) root->join_search_private;
+	private = (SaioPrivateData *) root->join_search_private;
 	ccost = (Cost *) palloc(sizeof(Cost));
 	*ccost = current_cost;
 	private->costs = lappend(private->costs, ccost);
@@ -479,7 +485,7 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 
 		print_query_tree_list("First node: ", list_make1(tree1));
 
-		tmp = get_tree_subtree(tree1);
+		tmp = get_all_nodes(tree1);
 		tmp = list_concat_unique_ptr(get_parents(tree1, false), tmp);
 		tmp = list_concat_unique_ptr(get_siblings(tree1), tmp);
 		choices = list_difference_ptr(choices, tmp);
@@ -494,16 +500,39 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 		print_query_tree_list("Second node: ", list_make1(tree2));
 
 		debug_printf("Move starting\n");
-		current_cost = do_move(root, tree, tree1, tree2, loops, current_cost);
+		//current_cost = do_move(root, tree, tree1, tree2, loops, current_cost);
 
-		private = (SAIOPrivate *) root->join_search_private;
+		private = (SaioPrivateData *) root->join_search_private;
 		ccost = (Cost *) palloc(sizeof(Cost));
 		*ccost = current_cost;
 		private->costs = lappend(private->costs, ccost);
 
 		debug_printf("Move finished\n");
 	}
+
 }
+
+
+static bool
+equilibrium(PlannerInfo *root)
+{
+	return true;
+}
+
+
+static void
+reduce_temperature(PlannerInfo *root)
+{
+	return;
+}
+
+
+static bool
+frozen(PlannerInfo *root)
+{
+	return true;
+}
+
 
 
 RelOptInfo *
@@ -511,50 +540,60 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 {
 	QueryTree		*tree;
 	List			*all_trees;
+	SaioContext		*ctx;
 	SaioPrivateData	private;
-	SaioContext		ctx;
 
-	/* initialize private data */
-	root->join_search_private = (void *) &private;
+	/* Create a context for repeated planning */
+	ctx = (SaioContext *) palloc(sizeof(SaioContext));
+
+	/* Create a sketch memory context as a child of the current context, so it
+	 * gets cleaned automatically in case of a ereport(ERROR) exit.
+	 */
+	ctx->sketch_context = AllocSetContextCreate(CurrentMemoryContext,
+												"SAIO",
+												ALLOCSET_DEFAULT_MINSIZE,
+												ALLOCSET_DEFAULT_INITSIZE,
+												ALLOCSET_DEFAULT_MAXSIZE);
 
 	private.costs = NIL;
 	private.ctx = ctx;
 
-	/*
-	 * Make the sketch context a child of the current context, so it gets
-	 * cleaned automatically in case of a ereport(ERROR) exit.
-	 */
-	ctx.sketch_context = AllocSetContextCreate(CurrentMemoryContext,
-											   "SAIO",
-											   ALLOCSET_DEFAULT_MINSIZE,
-											   ALLOCSET_DEFAULT_INITSIZE,
-											   ALLOCSET_DEFAULT_MAXSIZE);
+	/* initialize private data */
+	root->join_search_private = (void *) &private;
 
 	/*
 	 * Build a query tree from the initial relations. This should a tree that
 	 * represents any valid join order for the given set of rels.
 	 * Do it in a sketch context to avoid polluting root->join_rel_list and
-	 * root->join_rel_hash.
+	 * root->join_rel_hash and to be able to free the memory taken by
+	 * constructing paths after determining an initial join order.
 	 */
 	context_enter(root);
-	tree = make_query_tree(root, initial_rels);
-	context_exit(root);
 
+	tree = make_query_tree(root, initial_rels);
 	Assert(tree->rel != NULL);
+
+	/*
+	 * Copy the tree structure to the correct memory context. The rest of the
+	 * memory allocated in make_query_tree() will get freed in context_exit().
+	 */
+	MemoryContextSwitchTo(ctx->old_context);
+	tree = copy_tree_structure(tree);
+	MemoryContextSwitchTo(ctx->sketch_context);
+
+	context_exit(root);
 
 	/*
 	 * Get the list of all trees to then pick randomly from them when doing SA
 	 * algorithm moves.
 	 */
-	all_trees = get_tree_subtree(tree);
+	all_trees = get_all_nodes(tree);
 
-	do
-	{
-		do
-		{
+	do {
+		do {
 			tree = saio_move(root, tree, all_trees);
-			while (!equilibrium(root));
-		}
+		} while (!equilibrium(root));
+
 		reduce_temperature(root);
 	} while (!frozen(root));
 

@@ -49,8 +49,8 @@ typedef struct QueryTree {
 
 
 typedef struct SaioPrivateData {
-	List					*costs;
-	SaioJoinOrderContext	ctx;
+	List			*costs;
+	SaioContext		*ctx;
 } SaioPrivateData;
 
 
