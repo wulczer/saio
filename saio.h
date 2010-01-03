@@ -21,24 +21,6 @@
 
 extern int saio_cutoff;
 
-/*
- * A context under which a join order is computed. It will keep the state of
- * variables that get modified during planning and have to be reset to their
- * original state when the planning ends;
- *
- * It also holds a sketch memory context that will hold all memory allocations
- * done during considering a given join order. Since we are going to consider
- * lots of them, we need to free the memory after each try.
- *
- * See geqo_eval() for similar code and explanations.
- */
-typedef struct SaioContext {
-	MemoryContext	old_context;
-	MemoryContext	sketch_context;
-	int				savelength;
-	struct HTAB		*savehash;
-} SaioContext;
-
 
 typedef struct QueryTree {
 	RelOptInfo			*rel;
@@ -48,9 +30,26 @@ typedef struct QueryTree {
 } QueryTree;
 
 
+/*
+ * Keep the the state of variables that get modified during planning and have
+ * to be reset to their original state when the planning ends;
+ *
+ * Also use a sketch memory context that will hold all memory allocations done
+ * during considering a given join order. Since we are going to consider lots
+ * of them, we need to free the memory after each try.
+ *
+ * See geqo_eval() for similar code and explanations.
+ */
 typedef struct SaioPrivateData {
-	List			*costs;
-	SaioContext		*ctx;
+	Cost			previous_cost;		/* the cost of the previously join order */
+	MemoryContext	old_context;		/* the saved memory context */
+	MemoryContext	sketch_context;		/* the sketch memory context for
+										 * allocations during joinrel creation */
+	int				savelength;			/* length of planner's join_rel_list */
+	struct HTAB		*savehash;			/* the planner's join_rel_hash */
+
+	/* debugging only */
+	int				loops;
 } SaioPrivateData;
 
 

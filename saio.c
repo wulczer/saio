@@ -23,6 +23,9 @@
 #include "saio.h"
 
 
+#define SAIO_COST(rel) rel->cheapest_total_path->total_cost
+
+
 /*
  * Save the current state of the variables that get modified during
  * make_join_rel(). Enter a temporary memory context that will get reset when
@@ -31,18 +34,16 @@
 static void
 context_enter(PlannerInfo *root)
 {
-	SaioContext			*ctx;
-
-	ctx = ((SaioPrivateData *) root->join_search_private)->ctx;
+	SaioPrivateData	*private = (SaioPrivateData *) root->join_search_private;
 
 	/* join_rel_list and join_rel_hash get added to in make_join_rel() */
-	ctx->savelength = list_length(root->join_rel_list);
-	ctx->savehash = root->join_rel_hash;
+	private->savelength = list_length(root->join_rel_list);
+	private->savehash = root->join_rel_hash;
 	/* if a hash has already been built, we need to get rid of it */
 	root->join_rel_hash = NULL;
 
 	/* switch to the sketch context */
-	ctx->old_context = MemoryContextSwitchTo(ctx->sketch_context);
+	private->old_context = MemoryContextSwitchTo(private->sketch_context);
 }
 
 
@@ -52,19 +53,17 @@ context_enter(PlannerInfo *root)
 static void
 context_exit(PlannerInfo *root)
 {
-	SaioContext			*ctx;
-
-	ctx = ((SaioPrivateData *) root->join_search_private)->ctx;
+	SaioPrivateData	*private = (SaioPrivateData *) root->join_search_private;
 
 	/* restore join_rel_list and join_rel_hash */
 	root->join_rel_list = list_truncate(root->join_rel_list,
-										ctx->savelength);
-	root->join_rel_hash = ctx->savehash;
+										private->savelength);
+	root->join_rel_hash = private->savehash;
 
 	/* remove everything in the sketch context, but keep the context itself */
-	MemoryContextReset(ctx->sketch_context);
+	MemoryContextReset(private->sketch_context);
 	/* switch back to the old context */
-	MemoryContextSwitchTo(ctx->old_context);
+	MemoryContextSwitchTo(private->old_context);
 }
 
 
@@ -145,7 +144,7 @@ merge_trees(PlannerInfo *root, List *result, QueryTree *tree, bool force)
 				QueryTree	*new_tree;
 
 				/* Managed to construct the join, build a new QueryTree */
-				new_tree = (QueryTree *) palloc0(sizeof(QueryTree));
+				new_tree = (QueryTree *) palloc(sizeof(QueryTree));
 
 				/*
 				 * The new tree's rel will be the relation that's just been
@@ -157,6 +156,7 @@ merge_trees(PlannerInfo *root, List *result, QueryTree *tree, bool force)
 				new_tree->rel = joinrel;
 				new_tree->left = other_tree;
 				new_tree->right = tree;
+				new_tree->parent = NULL;
 
 				/* set the parent link, too */
 				other_tree->parent = new_tree;
@@ -327,6 +327,12 @@ copy_tree_structure(QueryTree *tree)
 	/* tree is nonempty, create the current node */
 	res = (QueryTree *) palloc(sizeof(QueryTree));
 
+	/*
+	 * Set the parent to NULL, for all nodes except the root node, it will be
+	 * then set correctly by the higher-level recursive invocation.
+	 */
+	res->parent = NULL;
+
 	/* for leaf nodes, copy the rel */
 	if (tree->left == NULL)
 		res->rel = tree->rel;
@@ -334,6 +340,14 @@ copy_tree_structure(QueryTree *tree)
 	/* copy the children */
 	res->right = copy_tree_structure(tree->right);
 	res->left = copy_tree_structure(tree->left);
+
+	/* set the parent */
+	if (res->right != NULL)
+	{
+		Assert(res->left != NULL);
+		res->left->parent = res;
+		res->right->parent = res;
+	}
 
 	return res;
 }
@@ -448,68 +462,47 @@ swap_subtrees(QueryTree *tree1, QueryTree *tree2)
 static QueryTree *
 saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 {
-	List			*choices, *tmp;
-	Cost			current_cost;
-	QueryTree		*tree1, *tree2;
-	int				loops;
+	List		*choices, *tmp;
+	QueryTree	*tree1, *tree2;
+	bool		ok;
 	SaioPrivateData	*private;
-	Cost			*ccost;
 
+	/* only one tree to choose from, return immediately */
 	if (list_length(all_trees) == 1)
 		return tree;
 
-	return tree;
-
-	loops = 0;
-
-	print_query_tree_list("All trees: ", all_trees);
-
-	Assert(tree->rel != NULL);
-	current_cost = tree->rel->cheapest_total_path->total_cost;
-
 	private = (SaioPrivateData *) root->join_search_private;
-	ccost = (Cost *) palloc(sizeof(Cost));
-	*ccost = current_cost;
-	private->costs = lappend(private->costs, ccost);
 
-	while (loops++ < saio_cutoff)
-	{
+	choices = list_copy(all_trees);
+	choices = list_delete_ptr(choices, llast(choices));
 
-		debug_printf("Loop %d, current cost cost: %.2f\n", loops, current_cost);
-		choices = list_copy(all_trees);
-		choices = list_delete_ptr(choices, llast(choices));
+	tree1 = list_nth(choices, random() % list_length(choices));
 
-		print_query_tree_list("Choices for first node: ", choices);
+	tmp = get_all_nodes(tree1);
+	tmp = list_concat_unique_ptr(get_parents(tree1, false), tmp);
+	tmp = list_concat_unique_ptr(get_siblings(tree1), tmp);
+	choices = list_difference_ptr(choices, tmp);
 
-		tree1 = list_nth(choices, random() % list_length(choices));
+	if (choices == NIL)
+		return tree;
 
-		print_query_tree_list("First node: ", list_make1(tree1));
+	tree2 = list_nth(choices, random() % list_length(choices));
 
-		tmp = get_all_nodes(tree1);
-		tmp = list_concat_unique_ptr(get_parents(tree1, false), tmp);
-		tmp = list_concat_unique_ptr(get_siblings(tree1), tmp);
-		choices = list_difference_ptr(choices, tmp);
+	swap_subtrees(tree1, tree2);
 
-		print_query_tree_list("Choices for second node: ", choices);
+	context_enter(root);
 
-		if (choices == NIL)
-			continue;
+	ok = recalculate_tree(root, tree);
+	if (ok)
+		ok = SAIO_COST(tree->rel) < private->previous_cost;
 
-		tree2 = list_nth(choices, random() % list_length(choices));
+	if (!ok)
+		swap_subtrees(tree1, tree2);
+	else
+		private->previous_cost = SAIO_COST(tree->rel);
 
-		print_query_tree_list("Second node: ", list_make1(tree2));
-
-		debug_printf("Move starting\n");
-		//current_cost = do_move(root, tree, tree1, tree2, loops, current_cost);
-
-		private = (SaioPrivateData *) root->join_search_private;
-		ccost = (Cost *) palloc(sizeof(Cost));
-		*ccost = current_cost;
-		private->costs = lappend(private->costs, ccost);
-
-		debug_printf("Move finished\n");
-	}
-
+	context_exit(root);
+	return tree;
 }
 
 
@@ -523,14 +516,18 @@ equilibrium(PlannerInfo *root)
 static void
 reduce_temperature(PlannerInfo *root)
 {
-	return;
+	SaioPrivateData	*private = (SaioPrivateData *) root->join_search_private;
+
+	private->loops++;
 }
 
 
 static bool
 frozen(PlannerInfo *root)
 {
-	return true;
+	SaioPrivateData	*private = (SaioPrivateData *) root->join_search_private;
+
+	return private->loops >= saio_cutoff;
 }
 
 
@@ -540,23 +537,18 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 {
 	QueryTree		*tree;
 	List			*all_trees;
-	SaioContext		*ctx;
 	SaioPrivateData	private;
-
-	/* Create a context for repeated planning */
-	ctx = (SaioContext *) palloc(sizeof(SaioContext));
 
 	/* Create a sketch memory context as a child of the current context, so it
 	 * gets cleaned automatically in case of a ereport(ERROR) exit.
 	 */
-	ctx->sketch_context = AllocSetContextCreate(CurrentMemoryContext,
-												"SAIO",
-												ALLOCSET_DEFAULT_MINSIZE,
-												ALLOCSET_DEFAULT_INITSIZE,
-												ALLOCSET_DEFAULT_MAXSIZE);
+	private.sketch_context = AllocSetContextCreate(CurrentMemoryContext,
+												   "SAIO",
+												   ALLOCSET_DEFAULT_MINSIZE,
+												   ALLOCSET_DEFAULT_INITSIZE,
+												   ALLOCSET_DEFAULT_MAXSIZE);
 
-	private.costs = NIL;
-	private.ctx = ctx;
+	private.loops = 0;
 
 	/* initialize private data */
 	root->join_search_private = (void *) &private;
@@ -571,15 +563,15 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	context_enter(root);
 
 	tree = make_query_tree(root, initial_rels);
-	Assert(tree->rel != NULL);
+	private.previous_cost = SAIO_COST(tree->rel);
 
 	/*
 	 * Copy the tree structure to the correct memory context. The rest of the
 	 * memory allocated in make_query_tree() will get freed in context_exit().
 	 */
-	MemoryContextSwitchTo(ctx->old_context);
+	MemoryContextSwitchTo(private.old_context);
 	tree = copy_tree_structure(tree);
-	MemoryContextSwitchTo(ctx->sketch_context);
+	MemoryContextSwitchTo(private.sketch_context);
 
 	context_exit(root);
 
@@ -600,8 +592,6 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 
 	/* Rebuild the final rel in the correct memory context */
 	recalculate_tree(root, tree);
-
-	Assert(tree->rel != NULL);
 
 	return tree->rel;
 }
