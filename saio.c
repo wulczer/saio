@@ -60,10 +60,11 @@ context_exit(PlannerInfo *root)
 										private->savelength);
 	root->join_rel_hash = private->savehash;
 
-	/* remove everything in the sketch context, but keep the context itself */
-	MemoryContextReset(private->sketch_context);
 	/* switch back to the old context */
 	MemoryContextSwitchTo(private->old_context);
+
+	/* remove everything in the sketch context, but keep the context itself */
+	MemoryContextResetAndDeleteChildren(private->sketch_context);
 }
 
 
@@ -459,7 +460,7 @@ swap_subtrees(QueryTree *tree1, QueryTree *tree2)
 }
 
 
-static QueryTree *
+static bool
 saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 {
 	List		*choices, *tmp;
@@ -469,9 +470,11 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 
 	/* only one tree to choose from, return immediately */
 	if (list_length(all_trees) == 1)
-		return tree;
+		return false;
 
 	private = (SaioPrivateData *) root->join_search_private;
+
+	context_enter(root);
 
 	choices = list_copy(all_trees);
 	choices = list_delete_ptr(choices, llast(choices));
@@ -484,13 +487,14 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 	choices = list_difference_ptr(choices, tmp);
 
 	if (choices == NIL)
-		return tree;
+	{
+		context_exit(root);
+		return false;
+	}
 
 	tree2 = list_nth(choices, random() % list_length(choices));
 
 	swap_subtrees(tree1, tree2);
-
-	context_enter(root);
 
 	ok = recalculate_tree(root, tree);
 	if (ok)
@@ -502,14 +506,26 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 		private->previous_cost = SAIO_COST(tree->rel);
 
 	context_exit(root);
-	return tree;
+	return ok;
 }
 
 
 static bool
 equilibrium(PlannerInfo *root)
 {
-	return true;
+	SaioPrivateData	*private = (SaioPrivateData *) root->join_search_private;
+
+	private->elapsed_loops++;
+
+	if (private->elapsed_loops >= private->equilibrium_loops)
+	{
+		/* reset the elapsed loops count */
+		private->elapsed_loops = 0;
+		/* equilibrium reached */
+		return true;
+	}
+
+	return false;
 }
 
 
@@ -518,7 +534,7 @@ reduce_temperature(PlannerInfo *root)
 {
 	SaioPrivateData	*private = (SaioPrivateData *) root->join_search_private;
 
-	private->loops++;
+	private->temperature *= saio_temperature_reduction_factor;
 }
 
 
@@ -527,9 +543,13 @@ frozen(PlannerInfo *root)
 {
 	SaioPrivateData	*private = (SaioPrivateData *) root->join_search_private;
 
-	return private->loops >= saio_cutoff;
-}
+	/* can only be frozen when temperature < 1 */
+	if (private->temperature > 1)
+		return false;
 
+	/* check the number of consecutive failed moves */
+	return private->failed_moves >= saio_moves_before_frozen;
+}
 
 
 RelOptInfo *
@@ -543,12 +563,10 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	 * gets cleaned automatically in case of a ereport(ERROR) exit.
 	 */
 	private.sketch_context = AllocSetContextCreate(CurrentMemoryContext,
-												   "SAIO",
-												   ALLOCSET_DEFAULT_MINSIZE,
-												   ALLOCSET_DEFAULT_INITSIZE,
-												   ALLOCSET_DEFAULT_MAXSIZE);
-
-	private.loops = 0;
+													"SAIO",
+													ALLOCSET_DEFAULT_MINSIZE,
+													ALLOCSET_DEFAULT_INITSIZE,
+													ALLOCSET_DEFAULT_MAXSIZE);
 
 	/* initialize private data */
 	root->join_search_private = (void *) &private;
@@ -563,7 +581,17 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	context_enter(root);
 
 	tree = make_query_tree(root, initial_rels);
+
+	/* Set the initial tree cost */
 	private.previous_cost = SAIO_COST(tree->rel);
+	/* Set the number of loops before considering equilibrium */
+	private.equilibrium_loops = levels_needed * saio_equilibrium_factor;
+	/* Set the initial temperature */
+	private.temperature = (double) private.previous_cost;
+	private.temperature *= saio_initial_temperature_factor;
+	/* Initialize the elapsed loops and failed moves counters */
+	private.elapsed_loops = 0;
+	private.failed_moves = 0;
 
 	/*
 	 * Copy the tree structure to the correct memory context. The rest of the
@@ -582,16 +610,23 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	all_trees = get_all_nodes(tree);
 
 	do {
+
 		do {
-			tree = saio_move(root, tree, all_trees);
+			if (saio_move(root, tree, all_trees))
+				private.failed_moves = 0;
+			else
+				private.failed_moves++;
 		} while (!equilibrium(root));
 
 		reduce_temperature(root);
+
 	} while (!frozen(root));
 
 
 	/* Rebuild the final rel in the correct memory context */
 	recalculate_tree(root, tree);
+
+	list_free(all_trees);
 
 	return tree->rel;
 }

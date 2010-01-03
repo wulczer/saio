@@ -22,9 +22,11 @@
 PG_MODULE_MAGIC;
 
 /* GUC variables */
-static bool enable_saio = false;
-
-int	saio_cutoff = 1;
+bool	enable_saio = false;
+int		saio_equilibrium_factor = 16;
+int		saio_initial_temperature_factor = 2;
+double	saio_temperature_reduction_factor = 0.9;
+int		saio_moves_before_frozen = 4;
 
 /* Saved hook value in case of unload */
 static join_search_hook_type prev_join_search_hook = NULL;
@@ -46,27 +48,34 @@ void
 _PG_init(void)
 {
 	 /* Define custom GUC */
-	DefineCustomBoolVariable("saio",
-							 "Use SA for query planning.",
-							 NULL,
-							 &enable_saio,
-							 true,
+	DefineCustomBoolVariable("saio", "Use SA for query planning.", NULL,
+							 &enable_saio, true,
 							 PGC_USERSET,
-							 0,
-							 NULL,
-							 NULL);
+							 0, NULL, NULL);
 
-	DefineCustomIntVariable("saio_cutoff",
-							"The cutoff for SAIO steps.",
-							NULL,
-							&saio_cutoff,
-							1,
-							0,
-							INT_MAX,
+	DefineCustomIntVariable("saio_equilibrium_factor",
+							"SA scaling factor for reaching equilibirum.", NULL,
+							&saio_equilibrium_factor, 16, 1, INT_MAX,
 							PGC_USERSET,
-							0,
-							NULL,
-							NULL);
+							0, NULL, NULL);
+
+	DefineCustomIntVariable("saio_initial_temperature_factor",
+							"SA scaling factor for initial temperature.", NULL,
+							&saio_initial_temperature_factor, 2, 1, INT_MAX,
+							PGC_USERSET,
+							0, NULL, NULL);
+
+	DefineCustomRealVariable("saio_temperature_reduction_factor",
+							 "SA temperature reduction factor.", NULL,
+							 &saio_temperature_reduction_factor, 0.9, 0, 1,
+							 PGC_USERSET,
+							 0, NULL, NULL);
+
+	DefineCustomIntVariable("saio_moves_before_frozen",
+							"SA moves before considering system frozen.", NULL,
+							&saio_moves_before_frozen, 4, 1, INT_MAX,
+							PGC_USERSET,
+							0, NULL, NULL);
 
 	/* Install hook */
 	prev_join_search_hook = join_search_hook;

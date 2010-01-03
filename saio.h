@@ -19,7 +19,12 @@
 #include "nodes/bitmapset.h"
 #include "optimizer/paths.h"
 
-extern int saio_cutoff;
+
+/* These get set by GUC */
+extern int		saio_equilibrium_factor;
+extern int		saio_initial_temperature_factor;
+extern double	saio_temperature_reduction_factor;
+extern int		saio_moves_before_frozen;
 
 
 typedef struct QueryTree {
@@ -41,15 +46,19 @@ typedef struct QueryTree {
  * See geqo_eval() for similar code and explanations.
  */
 typedef struct SaioPrivateData {
-	Cost			previous_cost;		/* the cost of the previously join order */
 	MemoryContext	old_context;		/* the saved memory context */
-	MemoryContext	sketch_context;		/* the sketch memory context for
-										 * allocations during joinrel creation */
+	MemoryContext	sketch_context;		/* the sketch memory context */
 	int				savelength;			/* length of planner's join_rel_list */
 	struct HTAB		*savehash;			/* the planner's join_rel_hash */
 
-	/* debugging only */
-	int				loops;
+	Cost			previous_cost;		/* the previously computere cost */
+	List			*min_state_path;	/* list of node pairs to swap to swap
+										 * to achieve the minimum cost state */
+
+	int				failed_moves;		/* moves that did not change the tree */
+	int				equilibrium_loops;	/* loops before reaching equilibrium */
+	int				elapsed_loops;		/* loops elapsed */
+	double			temperature;		/* current system temperature */
 } SaioPrivateData;
 
 
