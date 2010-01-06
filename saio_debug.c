@@ -162,27 +162,6 @@ dump_query_tree(PlannerInfo *root, QueryTree *tree, QueryTree *selected1,
 }
 
 
-void dump_costs(PlannerInfo *root, char *path)
-{
-	SAIOPrivate	*private;
-	ListCell	*lc;
-	FILE	*f;
-
-	f = fopen(path, "w");
-	fprintf(f, "plot '-'\n");
-
-	private = (SAIOPrivate *) root->join_search_private;
-
-	foreach(lc, private->costs)
-	{
-		Cost	*cost = (Cost *) lfirst(lc);
-
-		fprintf(f, "%f\n", *cost);
-	}
-	fclose(f);
-}
-
-
 void
 print_query_tree_list(char *intro, List *trees)
 {

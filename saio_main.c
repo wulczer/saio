@@ -23,8 +23,9 @@ PG_MODULE_MAGIC;
 
 /* GUC variables */
 bool	enable_saio = false;
+double	saio_seed = 0.0;
 int		saio_equilibrium_factor = 16;
-int		saio_initial_temperature_factor = 2;
+double	saio_initial_temperature_factor = 2.0;
 double	saio_temperature_reduction_factor = 0.9;
 int		saio_moves_before_frozen = 4;
 
@@ -53,21 +54,27 @@ _PG_init(void)
 							 PGC_USERSET,
 							 0, NULL, NULL);
 
+	DefineCustomRealVariable("saio_seed",
+							 "SA random seed.", NULL,
+							 &saio_seed, 0.0, 0.0, 1.0,
+							 PGC_USERSET,
+							 0, NULL, NULL);
+
 	DefineCustomIntVariable("saio_equilibrium_factor",
 							"SA scaling factor for reaching equilibirum.", NULL,
 							&saio_equilibrium_factor, 16, 1, INT_MAX,
 							PGC_USERSET,
 							0, NULL, NULL);
 
-	DefineCustomIntVariable("saio_initial_temperature_factor",
-							"SA scaling factor for initial temperature.", NULL,
-							&saio_initial_temperature_factor, 2, 1, INT_MAX,
-							PGC_USERSET,
-							0, NULL, NULL);
+	DefineCustomRealVariable("saio_initial_temperature_factor",
+							 "SA scaling factor for initial temperature.", NULL,
+							 &saio_initial_temperature_factor, 2.0, 0.0, 10.0,
+							 PGC_USERSET,
+							 0, NULL, NULL);
 
 	DefineCustomRealVariable("saio_temperature_reduction_factor",
 							 "SA temperature reduction factor.", NULL,
-							 &saio_temperature_reduction_factor, 0.9, 0, 1,
+							 &saio_temperature_reduction_factor, 0.9, 0.0, 1.0,
 							 PGC_USERSET,
 							 0, NULL, NULL);
 

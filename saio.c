@@ -10,8 +10,9 @@
  *
  *-------------------------------------------------------------------------
  */
-
 #include "postgres.h"
+
+#include <math.h>
 
 #include "utils/memutils.h"
 #include "nodes/pg_list.h"
@@ -67,7 +68,7 @@ context_exit(PlannerInfo *root)
 	MemoryContextResetAndDeleteChildren(private->sketch_context);
 }
 
-
+/*
 static List *
 list_intersection_ptr(List *list1, List *list2)
 {
@@ -86,7 +87,7 @@ list_intersection_ptr(List *list1, List *list2)
 
 	return result;
 }
-
+*/
 
 /* verbatim copy from geqo_eval.c */
 static bool
@@ -460,6 +461,34 @@ swap_subtrees(QueryTree *tree1, QueryTree *tree2)
 }
 
 
+static double
+saio_rand(PlannerInfo *root)
+{
+	SaioPrivateData *private = (SaioPrivateData *) root->join_search_private;
+
+	return erand48(private->random_state);
+}
+
+
+static bool
+acceptable(PlannerInfo *root, Cost new_cost)
+{
+	SaioPrivateData *private = (SaioPrivateData *) root->join_search_private;
+
+	/* downhill moves are always acceptable */
+	if (new_cost < private->previous_cost)
+		return true;
+
+	/*
+	 * Uphill moves are acceptable with probability
+	 *  exp((new - old) / temperature)
+	 */
+	return (saio_rand(root) < exp(
+				((double) (new_cost - private->previous_cost))
+				/ private->temperature));
+}
+
+
 static bool
 saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 {
@@ -498,7 +527,7 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 
 	ok = recalculate_tree(root, tree);
 	if (ok)
-		ok = SAIO_COST(tree->rel) < private->previous_cost;
+		ok = acceptable(root, SAIO_COST(tree->rel));
 
 	if (!ok)
 		swap_subtrees(tree1, tree2);
@@ -552,12 +581,31 @@ frozen(PlannerInfo *root)
 }
 
 
+/* verbatim copy from geqo_random.c */
+static void
+initialize_random_state(PlannerInfo *root, double seed)
+{
+	SaioPrivateData *private = (SaioPrivateData *) root->join_search_private;
+
+	memset(private->random_state, 0, sizeof(private->random_state));
+	memcpy(private->random_state,
+		   &seed,
+		   Min(sizeof(private->random_state), sizeof(seed)));
+}
+
+
 RelOptInfo *
 saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 {
 	QueryTree		*tree;
 	List			*all_trees;
 	SaioPrivateData	private;
+
+	/* Initialize private data */
+	root->join_search_private = (void *) &private;
+
+	/* Initialize the random state */
+	initialize_random_state(root, saio_seed);
 
 	/* Create a sketch memory context as a child of the current context, so it
 	 * gets cleaned automatically in case of a ereport(ERROR) exit.
@@ -568,8 +616,14 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 													ALLOCSET_DEFAULT_INITSIZE,
 													ALLOCSET_DEFAULT_MAXSIZE);
 
-	/* initialize private data */
-	root->join_search_private = (void *) &private;
+	/* Set the number of loops before considering equilibrium */
+	private.equilibrium_loops = levels_needed * saio_equilibrium_factor;
+	/* Set the initial temperature */
+	private.temperature = (double) private.previous_cost;
+	private.temperature *= saio_initial_temperature_factor;
+	/* Initialize the elapsed loops and failed moves counters */
+	private.elapsed_loops = 0;
+	private.failed_moves = 0;
 
 	/*
 	 * Build a query tree from the initial relations. This should a tree that
@@ -581,17 +635,8 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	context_enter(root);
 
 	tree = make_query_tree(root, initial_rels);
-
 	/* Set the initial tree cost */
 	private.previous_cost = SAIO_COST(tree->rel);
-	/* Set the number of loops before considering equilibrium */
-	private.equilibrium_loops = levels_needed * saio_equilibrium_factor;
-	/* Set the initial temperature */
-	private.temperature = (double) private.previous_cost;
-	private.temperature *= saio_initial_temperature_factor;
-	/* Initialize the elapsed loops and failed moves counters */
-	private.elapsed_loops = 0;
-	private.failed_moves = 0;
 
 	/*
 	 * Copy the tree structure to the correct memory context. The rest of the

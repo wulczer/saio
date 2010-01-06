@@ -21,8 +21,9 @@
 
 
 /* These get set by GUC */
+extern double	saio_seed;
 extern int		saio_equilibrium_factor;
-extern int		saio_initial_temperature_factor;
+extern double	saio_initial_temperature_factor;
 extern double	saio_temperature_reduction_factor;
 extern int		saio_moves_before_frozen;
 
@@ -59,6 +60,8 @@ typedef struct SaioPrivateData {
 	int				equilibrium_loops;	/* loops before reaching equilibrium */
 	int				elapsed_loops;		/* loops elapsed */
 	double			temperature;		/* current system temperature */
+
+	unsigned short	random_state[3];	/* state for erand48() */
 } SaioPrivateData;
 
 
