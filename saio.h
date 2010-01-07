@@ -27,7 +27,13 @@ extern double	saio_initial_temperature_factor;
 extern double	saio_temperature_reduction_factor;
 extern int		saio_moves_before_frozen;
 
-
+/*
+ * A tree that represents a join order.
+ *
+ * Each node has either one or no children. Leaves are initial relations, inner
+ * nodes are intermediate joinrels and the root node is the final join
+ * relation.
+ */
 typedef struct QueryTree {
 	RelOptInfo			*rel;
 	struct QueryTree	*left;
@@ -37,14 +43,13 @@ typedef struct QueryTree {
 
 
 /*
- * Keep the the state of variables that get modified during planning and have
- * to be reset to their original state when the planning ends;
+ * Private data for the SAIO algorithm. Keeps the the state of variables that
+ * get modified during planning and have to be reset to their original state
+ * when the planning ends.
  *
- * Also use a sketch memory context that will hold all memory allocations done
- * during considering a given join order. Since we are going to consider lots
- * of them, we need to free the memory after each try.
- *
- * See geqo_eval() for similar code and explanations.
+ * Also keep a sketch memory context that will hold all memory allocations
+ * done during considering a given join order. Since we are going to consider
+ * lots of them, we need to free the memory after each try.
  */
 typedef struct SaioPrivateData {
 	MemoryContext	old_context;		/* the saved memory context */
@@ -62,6 +67,10 @@ typedef struct SaioPrivateData {
 	double			temperature;		/* current system temperature */
 
 	unsigned short	random_state[3];	/* state for erand48() */
+
+	/* debugging aids */
+	List			*steps;
+	int				joinrels_built;
 } SaioPrivateData;
 
 

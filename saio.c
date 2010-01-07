@@ -30,7 +30,7 @@
 /*
  * Save the current state of the variables that get modified during
  * make_join_rel(). Enter a temporary memory context that will get reset when
- * we leave the context.
+ * we leave the context. See geqo_eval() for similar code and explanations.
  */
 static void
 context_enter(PlannerInfo *root)
@@ -413,6 +413,9 @@ recalculate_tree(PlannerInfo *root, QueryTree *tree)
 
 	if (joinrel)
 	{
+		SaioPrivateData *private = (SaioPrivateData *) root->join_search_private;
+		private->joinrels_built++;
+
 		/* constructed the joinrel, compute its paths and store it */
 		set_cheapest(joinrel);
 		tree->rel = joinrel;
@@ -474,17 +477,16 @@ static bool
 acceptable(PlannerInfo *root, Cost new_cost)
 {
 	SaioPrivateData *private = (SaioPrivateData *) root->join_search_private;
-
 	/* downhill moves are always acceptable */
 	if (new_cost < private->previous_cost)
 		return true;
 
 	/*
 	 * Uphill moves are acceptable with probability
-	 *  exp((new - old) / temperature)
+	 *  exp((old - new) / temperature)
 	 */
 	return (saio_rand(root) < exp(
-				((double) (new_cost - private->previous_cost))
+				((double) (private->previous_cost - new_cost))
 				/ private->temperature));
 }
 
@@ -616,15 +618,6 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 													ALLOCSET_DEFAULT_INITSIZE,
 													ALLOCSET_DEFAULT_MAXSIZE);
 
-	/* Set the number of loops before considering equilibrium */
-	private.equilibrium_loops = levels_needed * saio_equilibrium_factor;
-	/* Set the initial temperature */
-	private.temperature = (double) private.previous_cost;
-	private.temperature *= saio_initial_temperature_factor;
-	/* Initialize the elapsed loops and failed moves counters */
-	private.elapsed_loops = 0;
-	private.failed_moves = 0;
-
 	/*
 	 * Build a query tree from the initial relations. This should a tree that
 	 * represents any valid join order for the given set of rels.
@@ -648,6 +641,21 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 
 	context_exit(root);
 
+
+	/* Set the number of loops before considering equilibrium */
+	private.equilibrium_loops = levels_needed * saio_equilibrium_factor;
+	/* Set the initial temperature */
+	private.temperature = (double) private.previous_cost;
+	private.temperature *= saio_initial_temperature_factor;
+	/* Initialize the elapsed loops and failed moves counters */
+	private.elapsed_loops = 0;
+	private.failed_moves = 0;
+
+
+	/* init debugging */
+	private.steps = NIL;
+	private.joinrels_built = 0;
+
 	/*
 	 * Get the list of all trees to then pick randomly from them when doing SA
 	 * algorithm moves.
@@ -657,16 +665,36 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	do {
 
 		do {
+			/* save values for debugging */
+			SaioStep	*step = palloc(sizeof(SaioStep));
+
+			step->cost = private.previous_cost;
+			step->temperature = private.temperature;
+			step->joinrels_built = private.joinrels_built;
+			private.joinrels_built = 0;
+
 			if (saio_move(root, tree, all_trees))
+			{
+				step->move_result = true;
 				private.failed_moves = 0;
+			}
 			else
+			{
+				step->move_result = false;
 				private.failed_moves++;
+			}
+
+			private.steps = lappend(private.steps, step);
+
 		} while (!equilibrium(root));
 
 		reduce_temperature(root);
 
 	} while (!frozen(root));
 
+	/* dump debugging values, free memory */
+	dump_debugging(&private);
+	list_free_deep(private.steps);
 
 	/* Rebuild the final rel in the correct memory context */
 	recalculate_tree(root, tree);

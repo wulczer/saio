@@ -4,6 +4,17 @@
 #include "saio.h"
 #include "optimizer/paths.h"
 
+
+typedef struct SaioStep {
+	double			temperature;
+	Cost			cost;
+	bool			move_result;
+	int				joinrels_built;
+} SaioStep;
+
+
+void dump_debugging(SaioPrivateData *private);
+
 void fprintf_relids(FILE *f, Relids relids);
 
 void dump_query_tree(PlannerInfo *root, QueryTree *tree, QueryTree *selected1,

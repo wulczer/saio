@@ -6,6 +6,41 @@
 #include "saio_debug.h"
 
 
+void
+dump_debugging(SaioPrivateData *private)
+{
+	char path[1024];
+	int suffix;
+
+	for (suffix = 0; ; suffix++)
+	{
+		FILE		*f;
+		ListCell	*lc;
+
+		snprintf(path, 1024, "/tmp/saio.debug.%03d", suffix);
+		if ((f = fopen(path, "r")) != NULL)
+		{
+			fclose(f);
+			continue;
+		}
+
+		f = fopen(path, "w");
+		Assert(f != NULL);
+
+		foreach(lc, private->steps)
+		{
+			SaioStep	*step = (SaioStep *) lfirst(lc);
+
+			fprintf(f, "%10.4f  %10.4f  %1d  %6d\n",
+					step->temperature, step->cost,
+					step->move_result, step->joinrels_built);
+		}
+		fclose(f);
+		break;
+	}
+}
+
+
 int debug_vprintf(FILE *f, const char *format, ...)
 {
 	int		i;
