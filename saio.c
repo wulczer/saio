@@ -699,7 +699,10 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	/* Rebuild the final rel in the correct memory context */
 	recalculate_tree(root, tree);
 
+	/* Clean up */
 	list_free(all_trees);
+	MemoryContextDelete(private.sketch_context);
+	root->join_search_private = NULL;
 
 	return tree->rel;
 }
