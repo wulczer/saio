@@ -6,7 +6,7 @@
 #include "saio_debug.h"
 
 
-void
+int
 dump_debugging(SaioPrivateData *private)
 {
 	char path[1024];
@@ -38,6 +38,7 @@ dump_debugging(SaioPrivateData *private)
 		fclose(f);
 		break;
 	}
+	return suffix;
 }
 
 

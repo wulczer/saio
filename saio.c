@@ -68,26 +68,6 @@ context_exit(PlannerInfo *root)
 	MemoryContextResetAndDeleteChildren(private->sketch_context);
 }
 
-/*
-static List *
-list_intersection_ptr(List *list1, List *list2)
-{
-	List	   *result;
-	ListCell   *cell;
-
-	if (list1 == NIL || list2 == NIL)
-		return NIL;
-
-	result = NIL;
-	foreach(cell, list1)
-	{
-		if (list_member_ptr(list2, lfirst(cell)))
-			result = lappend(result, lfirst(cell));
-	}
-
-	return result;
-}
-*/
 
 /* verbatim copy from geqo_eval.c */
 static bool
@@ -464,6 +444,19 @@ swap_subtrees(QueryTree *tree1, QueryTree *tree2)
 }
 
 
+/* verbatim copy from geqo_random.c */
+static void
+initialize_random_state(PlannerInfo *root, double seed)
+{
+	SaioPrivateData *private = (SaioPrivateData *) root->join_search_private;
+
+	memset(private->random_state, 0, sizeof(private->random_state));
+	memcpy(private->random_state,
+		   &seed,
+		   Min(sizeof(private->random_state), sizeof(seed)));
+}
+
+
 static double
 saio_rand(PlannerInfo *root)
 {
@@ -473,10 +466,15 @@ saio_rand(PlannerInfo *root)
 }
 
 
+#define saio_randint(root, upper, lower) \
+	( (int) floor( saio_rand(root)*(((upper)-(lower))+0.999999) ) + (lower) )
+
+
 static bool
 acceptable(PlannerInfo *root, Cost new_cost)
 {
 	SaioPrivateData *private = (SaioPrivateData *) root->join_search_private;
+
 	/* downhill moves are always acceptable */
 	if (new_cost < private->previous_cost)
 		return true;
@@ -491,11 +489,63 @@ acceptable(PlannerInfo *root, Cost new_cost)
 }
 
 
+/*
+ * Keep the previous state as a global minimum if:
+ *  - the move is uphill
+ *  - there is no global minimum or it is more expensive the the previous state
+ *
+ * This way we optimize the number of times we save a state, which means
+ * copying the whole query tree.
+ *
+ * Also forget the global minimum if:
+ *  - the move is downhill
+ *  - there is a global mininum, but the previous state is cheaper
+ */
+static void
+keep_minimum_state(PlannerInfo *root, QueryTree *tree, Cost new_cost)
+{
+	SaioPrivateData *private = (SaioPrivateData *) root->join_search_private;
+
+	if (private->previous_cost >= new_cost)
+	{
+		/* move is downhill */
+		if ((private->min_tree != NULL) && (private->min_cost >= new_cost))
+		{
+			/* we broke the global minimum, forget it */
+			MemoryContextReset(private->min_context);
+			private->min_tree = NULL;
+		}
+	}
+	else
+	{
+		/* move is uphill */
+		if ((private->min_tree == NULL) ||
+			(private->min_cost > private->previous_cost))
+		{
+			/* there is no global minimum, keep the current state */
+			MemoryContext	old_context;
+
+			if (private->min_tree != NULL)
+				MemoryContextReset(private->min_context);
+
+			/* copy the current state into the global minimum context */
+			old_context = MemoryContextSwitchTo(private->min_context);
+			private->min_tree = copy_tree_structure(tree);
+			MemoryContextSwitchTo(old_context);
+
+			/* keep the cost as the minimal cost */
+			private->min_cost = private->previous_cost;
+		}
+	}
+}
+
+
 static bool
 saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 {
 	List		*choices, *tmp;
 	QueryTree	*tree1, *tree2;
+	Cost		new_cost;
 	bool		ok;
 	SaioPrivateData	*private;
 
@@ -510,7 +560,7 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 	choices = list_copy(all_trees);
 	choices = list_delete_ptr(choices, llast(choices));
 
-	tree1 = list_nth(choices, random() % list_length(choices));
+	tree1 = list_nth(choices, saio_randint(root, 0, list_length(choices) - 1));
 
 	tmp = get_all_nodes(tree1);
 	tmp = list_concat_unique_ptr(get_parents(tree1, false), tmp);
@@ -523,21 +573,36 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 		return false;
 	}
 
-	tree2 = list_nth(choices, random() % list_length(choices));
+	tree2 = list_nth(choices, saio_randint(root, 0, list_length(choices) - 1));
 
 	swap_subtrees(tree1, tree2);
 
 	ok = recalculate_tree(root, tree);
-	if (ok)
-		ok = acceptable(root, SAIO_COST(tree->rel));
+
+	swap_subtrees(tree1, tree2);
 
 	if (!ok)
-		swap_subtrees(tree1, tree2);
-	else
-		private->previous_cost = SAIO_COST(tree->rel);
+	{
+		context_exit(root);
+		return false;
+	}
+
+	new_cost = SAIO_COST(tree->rel);
 
 	context_exit(root);
-	return ok;
+
+	ok = acceptable(root, new_cost);
+
+	if (!ok)
+		return false;
+
+	keep_minimum_state(root, tree, new_cost);
+
+	private->previous_cost = new_cost;
+
+	swap_subtrees(tree1, tree2);
+
+	return true;
 }
 
 
@@ -583,24 +648,13 @@ frozen(PlannerInfo *root)
 }
 
 
-/* verbatim copy from geqo_random.c */
-static void
-initialize_random_state(PlannerInfo *root, double seed)
-{
-	SaioPrivateData *private = (SaioPrivateData *) root->join_search_private;
-
-	memset(private->random_state, 0, sizeof(private->random_state));
-	memcpy(private->random_state,
-		   &seed,
-		   Min(sizeof(private->random_state), sizeof(seed)));
-}
-
-
 RelOptInfo *
 saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 {
 	QueryTree		*tree;
 	List			*all_trees;
+	RelOptInfo		*res;
+	int i;
 	SaioPrivateData	private;
 
 	/* Initialize private data */
@@ -609,15 +663,22 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	/* Initialize the random state */
 	initialize_random_state(root, saio_seed);
 
-	/* Create a sketch memory context as a child of the current context, so it
+	/*
+	 * Create a sketch memory context as a child of the current context, so it
 	 * gets cleaned automatically in case of a ereport(ERROR) exit.
 	 */
 	private.sketch_context = AllocSetContextCreate(CurrentMemoryContext,
-													"SAIO",
-													ALLOCSET_DEFAULT_MINSIZE,
-													ALLOCSET_DEFAULT_INITSIZE,
-													ALLOCSET_DEFAULT_MAXSIZE);
+												   "SAIO",
+												   ALLOCSET_DEFAULT_MINSIZE,
+												   ALLOCSET_DEFAULT_INITSIZE,
+												   ALLOCSET_DEFAULT_MAXSIZE);
 
+	/* Create a context for keeping the minimum state */
+	private.min_context = AllocSetContextCreate(CurrentMemoryContext,
+												"SAIO min",
+												ALLOCSET_DEFAULT_MINSIZE,
+												ALLOCSET_DEFAULT_INITSIZE,
+												ALLOCSET_DEFAULT_MAXSIZE);
 	/*
 	 * Build a query tree from the initial relations. This should a tree that
 	 * represents any valid join order for the given set of rels.
@@ -641,7 +702,6 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 
 	context_exit(root);
 
-
 	/* Set the number of loops before considering equilibrium */
 	private.equilibrium_loops = levels_needed * saio_equilibrium_factor;
 	/* Set the initial temperature */
@@ -650,6 +710,8 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	/* Initialize the elapsed loops and failed moves counters */
 	private.elapsed_loops = 0;
 	private.failed_moves = 0;
+	/* Initialize the minimal state */
+	private.min_tree = NULL;
 
 
 	/* init debugging */
@@ -693,16 +755,22 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	} while (!frozen(root));
 
 	/* dump debugging values, free memory */
-	dump_debugging(&private);
+	i = dump_debugging(&private);
 	list_free_deep(private.steps);
+
+	/* if there is a global minimum, pick it */
+	if (private.min_tree != NULL)
+		tree = private.min_tree;
 
 	/* Rebuild the final rel in the correct memory context */
 	recalculate_tree(root, tree);
+	res = tree->rel;
 
 	/* Clean up */
 	list_free(all_trees);
 	MemoryContextDelete(private.sketch_context);
+	MemoryContextDelete(private.min_context);
 	root->join_search_private = NULL;
 
-	return tree->rel;
+	return res;
 }

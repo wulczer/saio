@@ -13,7 +13,7 @@ typedef struct SaioStep {
 } SaioStep;
 
 
-void dump_debugging(SaioPrivateData *private);
+int dump_debugging(SaioPrivateData *private);
 
 void fprintf_relids(FILE *f, Relids relids);
 

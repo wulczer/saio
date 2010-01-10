@@ -57,9 +57,10 @@ typedef struct SaioPrivateData {
 	int				savelength;			/* length of planner's join_rel_list */
 	struct HTAB		*savehash;			/* the planner's join_rel_hash */
 
-	Cost			previous_cost;		/* the previously computere cost */
-	List			*min_state_path;	/* list of node pairs to swap to swap
-										 * to achieve the minimum cost state */
+	Cost			previous_cost;		/* the previously computed cost */
+	Cost			min_cost;			/* globally cheapest cost */
+	MemoryContext	min_context;		/* context for the cheapest tree */
+	QueryTree		*min_tree;			/* globally cheapest tree */
 
 	int				failed_moves;		/* moves that did not change the tree */
 	int				equilibrium_loops;	/* loops before reaching equilibrium */
