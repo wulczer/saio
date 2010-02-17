@@ -648,7 +648,7 @@ saio_pivot_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 		recalculate_tree(root, tree);
 
 		snprintf(path, 256, "/tmp/saio-%03d-before.dot", private->loop_no);
-		dump_query_tree(root, tree, pivot_root, NULL, path);
+		dump_query_tree_list(root, tree, pivot_root, choices, path);
 
 		/* Check that a pivot is possible */
 		if (pivot_is_possible(root, pivot_root))
@@ -679,7 +679,7 @@ saio_pivot_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 				snprintf(path, 256, "/tmp/saio-%03d-after.dot", private->loop_no);
 				keep_minimum_state(root, tree, new_cost);
 				private->previous_cost = new_cost;
-				dump_query_tree(root, tree, pivot_root, NULL, path);
+				dump_query_tree_list(root, tree, pivot_root, choices, path);
 				context_exit(root);
 				list_free(choices);
 				return true;
@@ -703,6 +703,8 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 	Cost		new_cost;
 	bool		ok;
 	SaioPrivateData	*private;
+
+	char	path[256];
 
 	/* only one tree to choose from, return immediately */
 	if (list_length(all_trees) == 1)
@@ -741,6 +743,11 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 		context_exit(root);
 		return false;
 	}
+
+	swap_subtrees(tree1, tree2);
+	snprintf(path, 256, "/tmp/saio-%03d-before.dot", private->loop_no);
+	dump_query_tree(root, tree, tree1, tree2, path);
+	swap_subtrees(tree1, tree2);
 
 	new_cost = SAIO_COST(tree->rel);
 
@@ -893,7 +900,9 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 			step->joinrels_built = private.joinrels_built;
 			private.joinrels_built = 0;
 
-			if (saio_pivot_move(root, tree, all_trees))
+			if ((saio_pivot &&
+				 saio_pivot_move(root, tree, all_trees)) ||
+				saio_move(root, tree, all_trees))
 			{
 				step->move_result = true;
 				private.failed_moves = 0;

@@ -26,6 +26,7 @@ extern int		saio_equilibrium_factor;
 extern double	saio_initial_temperature_factor;
 extern double	saio_temperature_reduction_factor;
 extern int		saio_moves_before_frozen;
+extern bool		saio_pivot;
 
 /*
  * A tree that represents a join order.
