@@ -26,6 +26,8 @@
 
 #define SAIO_COST(rel) rel->cheapest_total_path->total_cost
 
+#define OTHER_CHILD(node, child) (node)->left == (child) ? (node)->right : (node)->left
+
 
 /*
  * Save the current state of the variables that get modified during
@@ -480,6 +482,16 @@ acceptable(PlannerInfo *root, Cost new_cost)
 		return true;
 
 	/*
+	 * If temperature < 1, moves that do not change state are considered
+	 * unacceptable.
+	 *
+	 * FIXME: this is to avoid endless loop with the same temperature and state
+	 * that is not changing, figure out *why* that happens and prevent it
+	 */
+	if ((private->temperature < 1) && (private->previous_cost == new_cost))
+		return false;
+
+	/*
 	 * Uphill moves are acceptable with probability
 	 *  exp((old - new) / temperature)
 	 */
@@ -537,6 +549,149 @@ keep_minimum_state(PlannerInfo *root, QueryTree *tree, Cost new_cost)
 			private->min_cost = private->previous_cost;
 		}
 	}
+}
+
+
+static List *
+filter_leaves(List *trees)
+{
+	ListCell	*lc;
+	List		*res = NIL;
+
+	foreach(lc, trees)
+	{
+		QueryTree	*tree = (QueryTree *) lfirst(lc);
+
+		if (tree->left == NULL)
+		{
+			Assert(tree->right == NULL);
+			continue;
+		}
+
+		res = lappend(res, tree);
+	}
+
+	return res;
+}
+
+
+static bool
+pivot_is_possible(PlannerInfo *root, QueryTree *pivot_root)
+{
+	QueryTree	*a, *b, *c;
+	RelOptInfo	*r1, *r2;
+
+	a = pivot_root->left;
+	b = pivot_root->right;
+	c = OTHER_CHILD(pivot_root->parent, pivot_root);
+
+	r1 = make_join_rel(root, b->rel, c->rel);
+	if (r1 == NULL)
+		return false;
+
+	set_cheapest(r1);
+
+	r2 = make_join_rel(root, a->rel, r1);
+	if (r2 == NULL)
+		return false;
+
+	set_cheapest(r2);
+
+	return true;
+}
+
+static void
+execute_pivot(QueryTree *pivot_root)
+{
+	QueryTree	*a, *b, *c;
+
+	a = pivot_root->left;
+	b = pivot_root->right;
+	c = OTHER_CHILD(pivot_root->parent, pivot_root);
+
+	swap_subtrees(a, c);
+}
+
+
+static bool
+saio_pivot_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
+{
+	List		*choices;
+	QueryTree	*pivot_root;
+	SaioPrivateData	*private = (SaioPrivateData *) root->join_search_private;
+
+	/* only one tree to choose from, return immediately */
+	if (list_length(all_trees) == 1)
+		return false;
+
+	/* get all trees */
+	choices = list_copy(all_trees);
+	/* remove root */
+	choices = list_delete_ptr(choices, llast(choices));
+	/* remove leaves */
+	choices = filter_leaves(choices);
+
+	while (choices != NIL)
+	{
+		char	path[256];
+
+		/* pick pivot root */
+		pivot_root = list_nth(choices, saio_randint(
+								  root, 0, list_length(choices) - 1));
+		choices = list_delete_ptr(choices, pivot_root);
+
+		Assert(pivot_root->left != NULL);
+		Assert(pivot_root->right != NULL);
+		Assert(pivot_root->parent != NULL);
+
+		context_enter(root);
+		recalculate_tree(root, tree);
+
+		snprintf(path, 256, "/tmp/saio-%03d-before.dot", private->loop_no);
+		dump_query_tree(root, tree, pivot_root, NULL, path);
+
+		/* Check that a pivot is possible */
+		if (pivot_is_possible(root, pivot_root))
+		{
+			bool	ok;
+			Cost	new_cost;
+
+			context_exit(root);
+
+			execute_pivot(pivot_root);
+
+			context_enter(root);
+
+			ok = recalculate_tree(root, tree);
+			if (ok)
+			{
+				new_cost = SAIO_COST(tree->rel);
+				ok = acceptable(root, new_cost);
+			}
+
+			if (!ok)
+			{
+				context_exit(root);
+				execute_pivot(pivot_root);
+			}
+			else
+			{
+				snprintf(path, 256, "/tmp/saio-%03d-after.dot", private->loop_no);
+				keep_minimum_state(root, tree, new_cost);
+				private->previous_cost = new_cost;
+				dump_query_tree(root, tree, pivot_root, NULL, path);
+				context_exit(root);
+				list_free(choices);
+				return true;
+			}
+		}
+		else
+		{
+			context_exit(root);
+		}
+	}
+
+	return false;
 }
 
 
@@ -717,12 +872,15 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	/* init debugging */
 	private.steps = NIL;
 	private.joinrels_built = 0;
+	private.loop_no = 0;
 
 	/*
 	 * Get the list of all trees to then pick randomly from them when doing SA
 	 * algorithm moves.
 	 */
 	all_trees = get_all_nodes(tree);
+
+	i = 0;
 
 	do {
 
@@ -735,10 +893,11 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 			step->joinrels_built = private.joinrels_built;
 			private.joinrels_built = 0;
 
-			if (saio_move(root, tree, all_trees))
+			if (saio_pivot_move(root, tree, all_trees))
 			{
 				step->move_result = true;
 				private.failed_moves = 0;
+				private.loop_no++;
 			}
 			else
 			{

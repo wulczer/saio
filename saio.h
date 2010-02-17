@@ -72,6 +72,7 @@ typedef struct SaioPrivateData {
 	/* debugging aids */
 	List			*steps;
 	int				joinrels_built;
+	int				loop_no;
 } SaioPrivateData;
 
 
