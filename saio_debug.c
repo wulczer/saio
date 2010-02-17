@@ -49,7 +49,7 @@ int debug_vprintf(FILE *f, const char *format, ...)
 
 	va_start(arg, format);
 #ifdef DEBUG
-	i = fprintf(f, format, arg);
+	i = vfprintf(f, format, arg);
 #else
 	i = 0;
 #endif
@@ -91,7 +91,11 @@ int debug_fprintf(FILE *f, const char *format, ...)
 	va_list	arg;
 
 	va_start(arg, format);
-	i = debug_vprintf(f, format, arg);
+#ifdef SAIO_DEBUG
+	i = vfprintf(f, format, arg);
+#else
+	i = 0;
+#endif
 	va_end(arg);
 	return i;
 }
@@ -112,7 +116,7 @@ debug_printf(const char *format, ...)
 
 static void
 dump_query_tree_node(QueryTree *tree, QueryTree *selected1,
-					 QueryTree *selected2, Relids relids, FILE *f)
+					 List *selected2, Relids relids, FILE *f)
 {
 
 	debug_fprintf(f, "        \"(");
@@ -120,7 +124,7 @@ dump_query_tree_node(QueryTree *tree, QueryTree *selected1,
 	debug_fprintf(f, ")\"");
 	if (tree == selected1)
 		debug_fprintf(f, " [color=red, fontcolor=red, ");
-	else if (tree == selected2)
+	else if (list_member_ptr(selected2, tree))
 		debug_fprintf(f, " [color=blue, fontcolor=blue, ");
 	else
 		debug_fprintf(f, " [");
@@ -148,7 +152,7 @@ dump_query_tree_edge(Relids relids, Relids other_relids, FILE *f)
 
 static Relids
 dump_query_tree_rec(PlannerInfo *root, QueryTree *tree,
-					QueryTree *selected1, QueryTree *selected2, FILE *f)
+					QueryTree *selected1, List *selected2, FILE *f)
 {
 	Relids	relids_left, relids_right, relids;
 
@@ -187,6 +191,17 @@ dump_query_tree_rec(PlannerInfo *root, QueryTree *tree,
 void
 dump_query_tree(PlannerInfo *root, QueryTree *tree, QueryTree *selected1,
 				QueryTree *selected2, char *path)
+{
+	List *s2 = list_make1(selected2);
+
+	dump_query_tree_list(root, tree, selected1, s2, path);
+	list_free(s2);
+}
+
+
+void
+dump_query_tree_list(PlannerInfo *root, QueryTree *tree, QueryTree *selected1,
+					 List *selected2, char *path)
 {
 	FILE	*f;
 
