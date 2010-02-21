@@ -339,11 +339,13 @@ copy_tree_structure(QueryTree *tree)
 
 
 /*
- * recalculate_tree
- *    Rebuild the final relation in the order given by the input tree.
+ * recalculate_tree_cutoff
+ *    Rebuild the final relation in the order given by the input tree, assuming
+ *    one subtree has already been processed.
  *
  * Traverses the QueryTree in postorder and recreates upper-level joinrels from
- * lower-level joinrels, starting at the leaves.
+ * lower-level joinrels, starting at the leaves. Assumes the subtree pointed to
+ * by cutoff is already computed and does not descend into it.
  *
  * If any of the intermidient joinrels cannot be constructed (because the tree
  * does not represent a valid join ordering) return false, otherwise return
@@ -353,13 +355,17 @@ copy_tree_structure(QueryTree *tree)
  * values of "rel" pointers in the non-leaf nodes can contain bogus values.
  */
 static bool
-recalculate_tree(PlannerInfo *root, QueryTree *tree)
+recalculate_tree_cutoff(PlannerInfo *root, QueryTree *tree, QueryTree *cutoff)
 {
 	RelOptInfo	*joinrel;
 	bool		ok;
 
 	/* we should never be called on an empty tree */
 	Assert(tree != NULL);
+
+	/* if it's the root of the precomputed tree, we're done */
+	if (tree == cutoff)
+		return true;
 
 	/* if it's a leaf, we're done */
 	if (tree->left == NULL)
@@ -372,7 +378,7 @@ recalculate_tree(PlannerInfo *root, QueryTree *tree)
 	Assert(tree->right != NULL);
 
 	/* recurse to the left child */
-	ok = recalculate_tree(root, tree->left);
+	ok = recalculate_tree_cutoff(root, tree->left, cutoff);
 
 	/* it either failed or computed the left child's rel */
 	Assert(!ok || (tree->left->rel != NULL));
@@ -382,7 +388,7 @@ recalculate_tree(PlannerInfo *root, QueryTree *tree)
 		return false;
 
 	/* recurse to the right child */
-	ok = recalculate_tree(root, tree->right);
+	ok = recalculate_tree_cutoff(root, tree->right, cutoff);
 
 	/* it either failed or computed the left child's rel */
 	Assert(!ok || (tree->left->rel != NULL));
@@ -409,6 +415,16 @@ recalculate_tree(PlannerInfo *root, QueryTree *tree)
 	return false;
 }
 
+
+/*
+ * recalculate_tree
+ *    Like recalculate_tree_cutoff but always traverses the whole tree.
+ */
+static bool
+recalculate_tree(PlannerInfo *root, QueryTree *tree)
+{
+	return recalculate_tree_cutoff(root, tree, NULL);
+}
 
 
 /* Swap two subtrees around. */
