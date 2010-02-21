@@ -13,6 +13,7 @@
 #include "postgres.h"
 
 #include <math.h>
+#include <time.h>
 
 #include "utils/memutils.h"
 #include "nodes/pg_list.h"
@@ -451,6 +452,9 @@ static void
 initialize_random_state(PlannerInfo *root, double seed)
 {
 	SaioPrivateData *private = (SaioPrivateData *) root->join_search_private;
+
+	if (seed == 0)
+		seed = (double) time(NULL);
 
 	memset(private->random_state, 0, sizeof(private->random_state));
 	memcpy(private->random_state,
