@@ -638,11 +638,13 @@ saio_pivot_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 {
 	List		*choices;
 	QueryTree	*pivot_root;
-	SaioPrivateData	*private = (SaioPrivateData *) root->join_search_private;
+	SaioPrivateData	*private;
 
-	/* only one tree to choose from, return immediately */
-	if (list_length(all_trees) == 1)
+	/* if less than four trees to choose from, return immediately */
+	if (list_length(all_trees) < 4)
 		return false;
+
+	private = (SaioPrivateData *) root->join_search_private;
 
 	/* get all trees */
 	choices = list_copy(all_trees);
@@ -724,10 +726,8 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 	bool		ok;
 	SaioPrivateData	*private;
 
-	char	path[256];
-
-	/* only one tree to choose from, return immediately */
-	if (list_length(all_trees) == 1)
+	/* if less than four trees to choose from, return immediately */
+	if (list_length(all_trees) < 4)
 		return false;
 
 	private = (SaioPrivateData *) root->join_search_private;
