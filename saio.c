@@ -680,7 +680,8 @@ saio_pivot_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 
 	while (choices != NIL)
 	{
-		char	path[256];
+		bool	ok;
+		Cost	new_cost;
 
 		/* pick pivot root */
 		pivot_root = list_nth(choices, saio_randint(
@@ -691,53 +692,55 @@ saio_pivot_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 		Assert(pivot_root->right != NULL);
 		Assert(pivot_root->parent != NULL);
 
+#ifdef SAIO_DEBUG
+		snprintf(path, 256, "/tmp/saio-pivot-%04d-try.dot", private->loop_no);
+		dump_query_tree_list(root, tree, pivot_root, choices, false, path);
+#endif
+
+		execute_pivot(pivot_root);
+
 		context_enter(root);
-		recalculate_tree(root, tree);
 
-		snprintf(path, 256, "/tmp/saio-%03d-before.dot", private->loop_no);
-		dump_query_tree_list(root, tree, pivot_root, choices, path);
+		ok = recalculate_tree(root, pivot_root->parent);
 
-		/* Check that a pivot is possible */
-		if (pivot_is_possible(root, pivot_root))
+		if (!ok)
 		{
-			bool	ok;
-			Cost	new_cost;
-
-			context_exit(root);
-
 			execute_pivot(pivot_root);
-
-			context_enter(root);
-
-			ok = recalculate_tree(root, tree);
-			if (ok)
-			{
-				new_cost = SAIO_COST(tree->rel);
-				ok = acceptable(root, new_cost);
-			}
-
-			if (!ok)
-			{
-				context_exit(root);
-				execute_pivot(pivot_root);
-			}
-			else
-			{
-				snprintf(path, 256, "/tmp/saio-%03d-after.dot", private->loop_no);
-				keep_minimum_state(root, tree, new_cost);
-				private->previous_cost = new_cost;
-				dump_query_tree_list(root, tree, pivot_root, choices, path);
-				context_exit(root);
-				list_free(choices);
-				return true;
-			}
-		}
-		else
-		{
 			context_exit(root);
+			continue;
 		}
+
+		ok = recalculate_tree_cutoff(root, tree, pivot_root->parent);
+		Assert(ok);
+
+		new_cost = SAIO_COST(tree->rel);
+
+		ok = acceptable(root, new_cost);
+
+		if (!ok)
+		{
+#ifdef SAIO_DEBUG
+			snprintf(path, 256, "/tmp/saio-pivot-%04d-failed.dot", private->loop_no);
+			dump_query_tree_list(root, tree, pivot_root, choices, true, path);
+#endif
+			execute_pivot(pivot_root);
+			context_exit(root);
+			continue;
+		}
+
+#ifdef SAIO_DEBUG
+		snprintf(path, 256, "/tmp/saio-pivot-%04d-successful.dot", private->loop_no);
+		dump_query_tree_list(root, tree, pivot_root, choices, true, path);
+#endif
+		keep_minimum_state(root, tree, new_cost);
+		private->previous_cost = new_cost;
+
+		context_exit(root);
+		list_free(choices);
+		return true;
 	}
 
+	list_free(choices);
 	return false;
 }
 
@@ -786,33 +789,37 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 
 	ok = recalculate_tree(root, tree);
 
-	swap_subtrees(tree1, tree2);
-
 	if (!ok)
 	{
+		swap_subtrees(tree1, tree2);
 		context_exit(root);
 		return false;
 	}
 
-	swap_subtrees(tree1, tree2);
-	snprintf(path, 256, "/tmp/saio-%03d-before.dot", private->loop_no);
-	dump_query_tree(root, tree, tree1, tree2, path);
-	swap_subtrees(tree1, tree2);
-
 	new_cost = SAIO_COST(tree->rel);
-
-	context_exit(root);
 
 	ok = acceptable(root, new_cost);
 
 	if (!ok)
+	{
+#ifdef SAIO_DEBUG
+		snprintf(path, 256, "/tmp/saio-move-%04d-failed.dot", private->loop_no);
+		dump_query_tree(root, tree, tree1, tree2, true, path);
+#endif
+		swap_subtrees(tree1, tree2);
+		context_exit(root);
 		return false;
+	}
+
+#ifdef SAIO_DEBUG
+	snprintf(path, 256, "/tmp/saio-move-%04d-successful.dot", private->loop_no);
+	dump_query_tree(root, tree, tree1, tree2, true, path);
+#endif
 
 	keep_minimum_state(root, tree, new_cost);
-
 	private->previous_cost = new_cost;
 
-	swap_subtrees(tree1, tree2);
+	context_exit(root);
 
 	return true;
 }
