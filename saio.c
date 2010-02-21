@@ -873,7 +873,6 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	QueryTree		*tree;
 	List			*all_trees;
 	RelOptInfo		*res;
-	int i;
 	SaioPrivateData	private;
 
 	/* Initialize private data */
@@ -944,8 +943,6 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	 */
 	all_trees = get_all_nodes(tree);
 
-	i = 0;
-
 	do {
 
 		do {
@@ -987,7 +984,7 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 
 #ifdef SAIO_DEBUG
 	/* dump debugging values, free memory */
-	i = dump_debugging(&private);
+	dump_debugging(&private);
 	list_free_deep(private.steps);
 #endif
 
