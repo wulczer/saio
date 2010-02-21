@@ -21,14 +21,19 @@
 #include "optimizer/pathnode.h"
 #include "optimizer/joininfo.h"
 
-#include "saio_debug.h"
 #include "saio.h"
 
+#ifdef SAIO_DEBUG
+#include "saio_debug.h"
+#endif
 
 #define SAIO_COST(rel) rel->cheapest_total_path->total_cost
 
 #define OTHER_CHILD(node, child) (node)->left == (child) ? (node)->right : (node)->left
 
+#ifdef SAIO_DEBUG
+static char	path[256];
+#endif
 
 /*
  * Save the current state of the variables that get modified during
@@ -338,6 +343,23 @@ copy_tree_structure(QueryTree *tree)
 }
 
 
+#ifdef NOT_USED
+static void
+cleanup_tree(QueryTree *tree)
+{
+	if (tree->left == NULL)
+	{
+		Assert(tree->right == NULL);
+		return;
+	}
+
+	tree->rel = NULL;
+	cleanup_tree(tree->left);
+	cleanup_tree(tree->right);
+}
+#endif
+
+
 /*
  * recalculate_tree_cutoff
  *    Rebuild the final relation in the order given by the input tree, assuming
@@ -595,6 +617,7 @@ filter_leaves(List *trees)
 }
 
 
+#ifdef NOT_USED
 static bool
 pivot_is_possible(PlannerInfo *root, QueryTree *pivot_root)
 {
@@ -619,6 +642,8 @@ pivot_is_possible(PlannerInfo *root, QueryTree *pivot_root)
 
 	return true;
 }
+#endif
+
 
 static void
 execute_pivot(QueryTree *pivot_root)
@@ -743,6 +768,11 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 	tmp = list_concat_unique_ptr(get_parents(tree1, false), tmp);
 	tmp = list_concat_unique_ptr(get_siblings(tree1), tmp);
 	choices = list_difference_ptr(choices, tmp);
+
+#ifdef SAIO_DEBUG
+	snprintf(path, 256, "/tmp/saio-move-%04d-try.dot", private->loop_no);
+	dump_query_tree_list(root, tree, tree1, choices, false, path);
+#endif
 
 	if (choices == NIL)
 	{
@@ -912,6 +942,7 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	do {
 
 		do {
+#ifdef SAIO_DEBUG
 			/* save values for debugging */
 			SaioStep	*step = palloc(sizeof(SaioStep));
 
@@ -919,32 +950,39 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 			step->temperature = private.temperature;
 			step->joinrels_built = private.joinrels_built;
 			private.joinrels_built = 0;
-
-			if ((saio_pivot &&
-				 saio_pivot_move(root, tree, all_trees)) ||
+#endif
+			if (saio_pivot ?
+				saio_pivot_move(root, tree, all_trees) :
 				saio_move(root, tree, all_trees))
 			{
+#ifdef SAIO_DEBUG
 				step->move_result = true;
-				private.failed_moves = 0;
 				private.loop_no++;
+#endif
+				private.failed_moves = 0;
 			}
 			else
 			{
+#ifdef SAIO_DEBUG
 				step->move_result = false;
+				private.loop_no++;
+#endif
 				private.failed_moves++;
 			}
-
+#ifdef SAIO_DEBUG
 			private.steps = lappend(private.steps, step);
-
+#endif
 		} while (!equilibrium(root));
 
 		reduce_temperature(root);
 
 	} while (!frozen(root));
 
+#ifdef SAIO_DEBUG
 	/* dump debugging values, free memory */
 	i = dump_debugging(&private);
 	list_free_deep(private.steps);
+#endif
 
 	/* if there is a global minimum, pick it */
 	if (private.min_tree != NULL)

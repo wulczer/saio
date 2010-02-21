@@ -42,22 +42,6 @@ dump_debugging(SaioPrivateData *private)
 }
 
 
-int debug_vprintf(FILE *f, const char *format, ...)
-{
-	int		i;
-	va_list	arg;
-
-	va_start(arg, format);
-#ifdef DEBUG
-	i = vfprintf(f, format, arg);
-#else
-	i = 0;
-#endif
-	va_end(arg);
-	return i;
-}
-
-
 void
 fprintf_relids(FILE *f, Relids relids)
 {
@@ -77,84 +61,59 @@ fprintf_relids(FILE *f, Relids relids)
 	while ((x = bms_first_member(tmprelids)) >= 0)
 	{
 		if (!first)
-			debug_fprintf(f, " ");
-		debug_fprintf(f, "%d", x);
+			fprintf(f, " ");
+		fprintf(f, "%d", x);
 		first = false;
 	}
 	bms_free(tmprelids);
 }
 
 
-int debug_fprintf(FILE *f, const char *format, ...)
-{
-	int		i;
-	va_list	arg;
-
-	va_start(arg, format);
-#ifdef SAIO_DEBUG
-	i = vfprintf(f, format, arg);
-#else
-	i = 0;
-#endif
-	va_end(arg);
-	return i;
-}
-
-
-int
-debug_printf(const char *format, ...)
-{
-	int		i;
-	va_list	arg;
-
-	va_start(arg, format);
-	i = debug_fprintf(stdout, format, arg);
-	va_end(arg);
-	return i;
-}
-
-
 static void
-dump_query_tree_node(QueryTree *tree, QueryTree *selected1,
-					 List *selected2, Relids relids, FILE *f)
+dump_query_tree_node(QueryTree *tree, QueryTree *selected1, List *selected2,
+					 Relids relids, bool costs, Cost previous_cost, FILE *f)
 {
 
-	debug_fprintf(f, "        \"(");
+	fprintf(f, "        \"(");
 	fprintf_relids(f, relids);
-	debug_fprintf(f, ")\"");
+	fprintf(f, ")\"");
 	if (tree == selected1)
-		debug_fprintf(f, " [color=red, fontcolor=red, ");
+		fprintf(f, " [color=red, fontcolor=red, ");
 	else if (list_member_ptr(selected2, tree))
-		debug_fprintf(f, " [color=blue, fontcolor=blue, ");
+		fprintf(f, " [color=blue, fontcolor=blue, ");
 	else
-		debug_fprintf(f, " [");
+		fprintf(f, " [");
 
-	debug_fprintf(f, "label=<(");
+	fprintf(f, "label=<(");
 	fprintf_relids(f, relids);
-	debug_fprintf(f, ")");
-	if (tree->rel)
-		debug_fprintf(f, "<br/><font point-size=\"7\">%.2f</font>",
-				tree->rel->cheapest_total_path->total_cost);
-	debug_fprintf(f, ">];\n");
+	fprintf(f, ")");
+	if (costs)
+		fprintf(f, "<br/><font point-size=\"7\">%.2f</font>",
+					  tree->rel->cheapest_total_path->total_cost);
+	else if (tree->parent == NULL)
+		fprintf(f, "<br/><font point-size=\"7\">%.2f</font>",
+					  previous_cost);
+	fprintf(f, ">];\n");
 }
 
 
 static void
 dump_query_tree_edge(Relids relids, Relids other_relids, FILE *f)
 {
-	debug_fprintf(f, "        \"(");
+	fprintf(f, "        \"(");
 	fprintf_relids(f, relids);
-	debug_fprintf(f, ")\" -> \"(");
+	fprintf(f, ")\" -> \"(");
 	fprintf_relids(f, other_relids);
-	debug_fprintf(f, ")\";\n");
+	fprintf(f, ")\";\n");
 }
 
 
 static Relids
 dump_query_tree_rec(PlannerInfo *root, QueryTree *tree,
-					QueryTree *selected1, List *selected2, FILE *f)
+					QueryTree *selected1, List *selected2, bool costs, FILE *f)
 {
 	Relids	relids_left, relids_right, relids;
+	SaioPrivateData	*private = (SaioPrivateData *) root->join_search_private;
 
 	Assert(tree != NULL);
 
@@ -164,7 +123,8 @@ dump_query_tree_rec(PlannerInfo *root, QueryTree *tree,
 		Assert(tree->rel != NULL);
 
 		relids = bms_copy(tree->rel->relids);
-		dump_query_tree_node(tree, selected1, selected2, relids, f);
+		dump_query_tree_node(tree, selected1, selected2, relids, costs,
+							 private->previous_cost, f);
 
 		return relids;
 	}
@@ -172,14 +132,15 @@ dump_query_tree_rec(PlannerInfo *root, QueryTree *tree,
 	Assert(tree->right != NULL);
 
 	relids_left = dump_query_tree_rec(root, tree->left,
-											selected1, selected2, f);
+									  selected1, selected2, costs, f);
 	relids_right = dump_query_tree_rec(root, tree->right,
-											 selected1, selected2, f);
+									   selected1, selected2, costs, f);
 
 	Assert(!bms_overlap(relids_left, relids_right));
 	relids = bms_union(relids_left, relids_right);
 
-	dump_query_tree_node(tree, selected1, selected2, relids, f);
+	dump_query_tree_node(tree, selected1, selected2, relids, costs,
+						 private->previous_cost, f);
 
 	dump_query_tree_edge(relids, relids_left, f);
 	dump_query_tree_edge(relids, relids_right, f);
@@ -190,25 +151,25 @@ dump_query_tree_rec(PlannerInfo *root, QueryTree *tree,
 
 void
 dump_query_tree(PlannerInfo *root, QueryTree *tree, QueryTree *selected1,
-				QueryTree *selected2, char *path)
+				QueryTree *selected2, bool costs, char *path)
 {
 	List *s2 = list_make1(selected2);
 
-	dump_query_tree_list(root, tree, selected1, s2, path);
+	dump_query_tree_list(root, tree, selected1, s2, costs, path);
 	list_free(s2);
 }
 
 
 void
 dump_query_tree_list(PlannerInfo *root, QueryTree *tree, QueryTree *selected1,
-					 List *selected2, char *path)
+					 List *selected2, bool costs, char *path)
 {
 	FILE	*f;
 
 	f = fopen(path, "w");
-	debug_fprintf(f, "strict digraph {\n");
-	dump_query_tree_rec(root, tree, selected1, selected2, f);
-	debug_fprintf(f, "}\n");
+	fprintf(f, "strict digraph {\n");
+	dump_query_tree_rec(root, tree, selected1, selected2, costs, f);
+	fprintf(f, "}\n");
 	fclose(f);
 }
 
@@ -218,16 +179,16 @@ print_query_tree_list(char *intro, List *trees)
 {
 	ListCell	*lc;
 
-	debug_printf("%s", intro);
+	printf("%s", intro);
 	foreach(lc, trees)
 	{
 		QueryTree	*tree = (QueryTree *) lfirst(lc);
 
-		debug_printf("(");
+		printf("(");
 		fprintf_relids(stdout, tree->rel->relids);
-		debug_printf(") ");
+		printf(") ");
 	}
-	debug_printf("\n");
+	printf("\n");
 }
 
 void
@@ -235,10 +196,10 @@ trace_join(const char *path, RelOptInfo *r1, RelOptInfo *r2)
 {
 	FILE *f = fopen(path, "a");
 
-	debug_fprintf(f, "(");
+	fprintf(f, "(");
 	fprintf_relids(f, r1->relids);
-	debug_fprintf(f, ") JOIN (");
+	fprintf(f, ") JOIN (");
 	fprintf_relids(f, r2->relids);
-	debug_fprintf(f, ")\n");
+	fprintf(f, ")\n");
 	fclose(f);
 }
