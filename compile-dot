@@ -1,5 +1,16 @@
 #!/bin/bash
 
-for i in /tmp/*.dot; do
+if [ "$1" ]; then
+    all="$*"
+    noisy=1
+else
+    all="/tmp/*.dot"
+    noisy=
+fi
+
+for i in $all; do
+    if [ -n "$noisy" ]; then
+	echo $i
+    fi
     dot -Tpng -o ${i/dot/png} $i
 done
