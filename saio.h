@@ -26,7 +26,7 @@ extern int		saio_equilibrium_factor;
 extern double	saio_initial_temperature_factor;
 extern double	saio_temperature_reduction_factor;
 extern int		saio_moves_before_frozen;
-extern bool		saio_pivot;
+extern int		saio_move_algorithm;
 
 /*
  * A tree that represents a join order.
@@ -76,6 +76,14 @@ typedef struct SaioPrivateData {
 	int				joinrels_built;
 	int				loop_no;
 } SaioPrivateData;
+
+
+typedef enum saio_algorithm
+{
+	SAIO_ALGORITHM_MOVE = 0,
+	SAIO_ALGORITHM_PIVOT,
+	SAIO_ALGORITHM_RECALC,
+} saio_algorithm;
 
 
 RelOptInfo *saio(PlannerInfo *root, int levels_needed, List *initial_rels);

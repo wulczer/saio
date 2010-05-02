@@ -26,6 +26,13 @@
 
 PG_MODULE_MAGIC;
 
+static const struct config_enum_entry algorithm_options[] = {
+    {"move", SAIO_ALGORITHM_MOVE, false},
+    {"pivot", SAIO_ALGORITHM_PIVOT, false},
+    {"recalc", SAIO_ALGORITHM_RECALC, false},
+    {NULL, 0, false}
+};
+
 /* GUC variables */
 bool	enable_saio = false;
 double	saio_seed = 0.0;
@@ -34,7 +41,7 @@ double	saio_initial_temperature_factor = 2.0;
 double	saio_temperature_reduction_factor = 0.9;
 int		saio_moves_before_frozen = 4;
 
-bool saio_pivot = true;
+int saio_move_algorithm = SAIO_ALGORITHM_RECALC;
 
 /* Saved hook value in case of unload */
 static join_search_hook_type prev_join_search_hook = NULL;
@@ -91,10 +98,10 @@ _PG_init(void)
 							PGC_USERSET,
 							0, NULL, NULL);
 
-	DefineCustomBoolVariable("saio_pivot", "Do pivots in SA.", NULL,
-							 &saio_pivot, true,
-							 PGC_USERSET,
-							 0, NULL, NULL);
+	DefineCustomEnumVariable("saio_algorithm", "Algorithm to use for moves.",
+							 NULL,
+							 &saio_move_algorithm, SAIO_ALGORITHM_MOVE,
+							 algorithm_options, PGC_USERSET, 0, NULL, NULL);
 	/* Install hook */
 	prev_join_search_hook = join_search_hook;
 	join_search_hook = saio_main;
