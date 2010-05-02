@@ -1,3 +1,7 @@
+load 'saio';
+
+set saio_algorithm TO recalc;
+
 explain select * from
 	tenk1 t1,
 	tenk1 t2,
