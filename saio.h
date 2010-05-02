@@ -40,6 +40,7 @@ typedef struct QueryTree {
 	struct QueryTree	*left;
 	struct QueryTree	*right;
 	struct QueryTree	*parent;
+	MemoryContext		ctx;
 } QueryTree;
 
 

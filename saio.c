@@ -377,7 +377,8 @@ cleanup_tree(QueryTree *tree)
  * values of "rel" pointers in the non-leaf nodes can contain bogus values.
  */
 static bool
-recalculate_tree_cutoff(PlannerInfo *root, QueryTree *tree, QueryTree *cutoff)
+recalculate_tree_cutoff_ctx(PlannerInfo *root, QueryTree *tree,
+							QueryTree *cutoff, bool own_ctx)
 {
 	RelOptInfo	*joinrel;
 	bool		ok;
@@ -400,7 +401,7 @@ recalculate_tree_cutoff(PlannerInfo *root, QueryTree *tree, QueryTree *cutoff)
 	Assert(tree->right != NULL);
 
 	/* recurse to the left child */
-	ok = recalculate_tree_cutoff(root, tree->left, cutoff);
+	ok = recalculate_tree_cutoff_ctx(root, tree->left, cutoff, own_ctx);
 
 	/* it either failed or computed the left child's rel */
 	Assert(!ok || (tree->left->rel != NULL));
@@ -410,7 +411,7 @@ recalculate_tree_cutoff(PlannerInfo *root, QueryTree *tree, QueryTree *cutoff)
 		return false;
 
 	/* recurse to the right child */
-	ok = recalculate_tree_cutoff(root, tree->right, cutoff);
+	ok = recalculate_tree_cutoff_ctx(root, tree->right, cutoff, own_ctx);
 
 	/* it either failed or computed the left child's rel */
 	Assert(!ok || (tree->left->rel != NULL));
@@ -420,7 +421,17 @@ recalculate_tree_cutoff(PlannerInfo *root, QueryTree *tree, QueryTree *cutoff)
 		return false;
 
 	/* try to join the children's relations */
-	joinrel = make_join_rel(root, tree->left->rel, tree->right->rel);
+	if (own_ctx)
+	{
+		MemoryContext old;
+		old = MemoryContextSwitchTo(tree->ctx);
+		joinrel = make_join_rel(root, tree->left->rel, tree->right->rel);
+		MemoryContextSwitchTo(old);
+	}
+	else
+	{
+		joinrel = make_join_rel(root, tree->left->rel, tree->right->rel);
+	}
 
 	if (joinrel)
 	{
@@ -435,6 +446,13 @@ recalculate_tree_cutoff(PlannerInfo *root, QueryTree *tree, QueryTree *cutoff)
 
 	/* failed to build the joinrel */
 	return false;
+}
+
+
+static bool
+recalculate_tree_cutoff(PlannerInfo *root, QueryTree *tree, QueryTree *cutoff)
+{
+	return recalculate_tree_cutoff_ctx(root, tree, cutoff, false);
 }
 
 
@@ -864,6 +882,22 @@ frozen(PlannerInfo *root)
 
 	/* check the number of consecutive failed moves */
 	return private->failed_moves >= saio_moves_before_frozen;
+}
+
+
+static void
+init_tree_contexts(QueryTree *tree)
+{
+	Assert(tree != NULL);
+
+	tree->ctx = AllocSetContextCreate(CurrentMemoryContext, "SAIO node",
+									  ALLOCSET_DEFAULT_MINSIZE,
+									  ALLOCSET_DEFAULT_INITSIZE,
+									  ALLOCSET_DEFAULT_MAXSIZE);
+	if (tree->right != NULL)
+		init_tree_contexts(tree->right);
+	if (tree->left != NULL)
+		init_tree_contexts(tree->left);
 }
 
 
