@@ -24,8 +24,9 @@ void fprintf_relids(FILE *f, Relids relids);
 void dump_query_tree(PlannerInfo *root, QueryTree *tree, QueryTree *selected1,
 					 QueryTree *selected2, bool costs, char *path);
 
-void dump_query_tree_list(PlannerInfo *root, QueryTree *tree, QueryTree *selected1,
-						  List *selected2, bool costs, char *path);
+void dump_query_tree_list(PlannerInfo *root, QueryTree *tree,
+						  QueryTree *selected1, QueryTree *selected2,
+						  List *selected, bool costs, char *path);
 
 void dump_costs(PlannerInfo *root, char *path);
 

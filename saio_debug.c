@@ -130,8 +130,10 @@ fprintf_relids(FILE *f, Relids relids)
 
 
 static void
-dump_query_tree_node(QueryTree *tree, QueryTree *selected1, List *selected2,
-					 Relids relids, bool costs, Cost previous_cost, FILE *f)
+dump_query_tree_node(QueryTree *tree,
+					 QueryTree *selected1, QueryTree *selected2,
+					 List *selected, Relids relids, bool costs,
+					 Cost previous_cost, FILE *f)
 {
 
 	fprintf(f, "        \"(");
@@ -139,8 +141,10 @@ dump_query_tree_node(QueryTree *tree, QueryTree *selected1, List *selected2,
 	fprintf(f, ")\"");
 	if (tree == selected1)
 		fprintf(f, " [color=red, fontcolor=red, ");
-	else if (list_member_ptr(selected2, tree))
+	else if (tree == selected2)
 		fprintf(f, " [color=blue, fontcolor=blue, ");
+	else if (list_member_ptr(selected, tree))
+		fprintf(f, " [color=green, fontcolor=green, ");
 	else
 		fprintf(f, " [");
 
@@ -170,7 +174,8 @@ dump_query_tree_edge(Relids relids, Relids other_relids, FILE *f)
 
 static Relids
 dump_query_tree_rec(PlannerInfo *root, QueryTree *tree,
-					QueryTree *selected1, List *selected2, bool costs, FILE *f)
+					QueryTree *selected1, QueryTree *selected2,
+					List *selected, bool costs, FILE *f)
 {
 	Relids	relids_left, relids_right, relids;
 	SaioPrivateData	*private = (SaioPrivateData *) root->join_search_private;
@@ -183,7 +188,8 @@ dump_query_tree_rec(PlannerInfo *root, QueryTree *tree,
 		Assert(tree->rel != NULL);
 
 		relids = bms_copy(tree->rel->relids);
-		dump_query_tree_node(tree, selected1, selected2, relids, costs,
+		dump_query_tree_node(tree, selected1, selected2, selected,
+							 relids, costs,
 							 private->previous_cost, f);
 
 		return relids;
@@ -192,14 +198,17 @@ dump_query_tree_rec(PlannerInfo *root, QueryTree *tree,
 	Assert(tree->right != NULL);
 
 	relids_left = dump_query_tree_rec(root, tree->left,
-									  selected1, selected2, costs, f);
+									  selected1, selected2,
+									  selected, costs, f);
 	relids_right = dump_query_tree_rec(root, tree->right,
-									   selected1, selected2, costs, f);
+									   selected1, selected2,
+									   selected, costs, f);
 
 	Assert(!bms_overlap(relids_left, relids_right));
 	relids = bms_union(relids_left, relids_right);
 
-	dump_query_tree_node(tree, selected1, selected2, relids, costs,
+	dump_query_tree_node(tree, selected1, selected2, selected,
+						 relids, costs,
 						 private->previous_cost, f);
 
 	dump_query_tree_edge(relids, relids_left, f);
@@ -213,22 +222,20 @@ void
 dump_query_tree(PlannerInfo *root, QueryTree *tree, QueryTree *selected1,
 				QueryTree *selected2, bool costs, char *path)
 {
-	List *s2 = list_make1(selected2);
-
-	dump_query_tree_list(root, tree, selected1, s2, costs, path);
-	list_free(s2);
+	dump_query_tree_list(root, tree, selected1, selected2, NIL, costs, path);
 }
 
 
 void
-dump_query_tree_list(PlannerInfo *root, QueryTree *tree, QueryTree *selected1,
-					 List *selected2, bool costs, char *path)
+dump_query_tree_list(PlannerInfo *root, QueryTree *tree,
+					 QueryTree *selected1, QueryTree *selected2,
+					 List *selected, bool costs, char *path)
 {
 	FILE	*f;
 
 	f = fopen(path, "w");
 	fprintf(f, "strict digraph {\n");
-	dump_query_tree_rec(root, tree, selected1, selected2, costs, f);
+	dump_query_tree_rec(root, tree, selected1, selected2, selected, costs, f);
 	fprintf(f, "}\n");
 	fclose(f);
 }

@@ -694,7 +694,7 @@ saio_pivot_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 
 #ifdef SAIO_DEBUG
 		snprintf(path, 256, "/tmp/saio-pivot-%04d-try.dot", private->loop_no);
-		dump_query_tree_list(root, tree, pivot_root, choices, false, path);
+		dump_query_tree_list(root, tree, pivot_root, NULL, choices, false, path);
 #endif
 
 		execute_pivot(pivot_root);
@@ -721,7 +721,7 @@ saio_pivot_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 		{
 #ifdef SAIO_DEBUG
 			snprintf(path, 256, "/tmp/saio-pivot-%04d-failed.dot", private->loop_no);
-			dump_query_tree_list(root, tree, pivot_root, choices, true, path);
+			dump_query_tree_list(root, tree, pivot_root, NULL, choices, true, path);
 #endif
 			execute_pivot(pivot_root);
 			context_exit(root);
@@ -730,7 +730,7 @@ saio_pivot_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 
 #ifdef SAIO_DEBUG
 		snprintf(path, 256, "/tmp/saio-pivot-%04d-successful.dot", private->loop_no);
-		dump_query_tree_list(root, tree, pivot_root, choices, true, path);
+		dump_query_tree_list(root, tree, pivot_root, NULL, choices, true, path);
 #endif
 		keep_minimum_state(root, tree, new_cost);
 		private->previous_cost = new_cost;
@@ -774,7 +774,7 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 
 #ifdef SAIO_DEBUG
 	snprintf(path, 256, "/tmp/saio-move-%04d-try.dot", private->loop_no);
-	dump_query_tree_list(root, tree, tree1, choices, false, path);
+	dump_query_tree_list(root, tree, tree1, NULL, choices, false, path);
 #endif
 
 	if (choices == NIL)
