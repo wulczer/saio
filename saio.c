@@ -134,7 +134,7 @@ merge_trees(PlannerInfo *root, List *result, QueryTree *tree, bool force)
 				QueryTree	*new_tree;
 
 				/* Managed to construct the join, build a new QueryTree */
-				new_tree = (QueryTree *) palloc(sizeof(QueryTree));
+				new_tree = (QueryTree *) palloc0(sizeof(QueryTree));
 
 				/*
 				 * The new tree's rel will be the relation that's just been
