@@ -1,0 +1,4 @@
+#!/bin/bash
+
+sudo opcontrol --dump
+sudo opcontrol --stop
