@@ -13,6 +13,11 @@
 
 #include <limits.h>
 
+#ifdef SAIO_DEBUG
+#include <printf.h>
+#include "saio_debug.h"
+#endif
+
 #include "utils/guc.h"
 #include "optimizer/paths.h"
 #include "optimizer/geqo.h"
@@ -93,6 +98,10 @@ _PG_init(void)
 	/* Install hook */
 	prev_join_search_hook = join_search_hook;
 	join_search_hook = saio_main;
+
+#ifdef SAIO_DEBUG
+	register_printf_specifier('T', print_tree_node, print_tree_node_arginfo);
+#endif
 }
 
 /* Module unload */

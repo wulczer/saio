@@ -1,8 +1,12 @@
 #ifndef SAIO_DEBUG_H
 #define SAIO_DEBUG_H
 
+#include <printf.h>
+
 #include "saio.h"
 #include "optimizer/paths.h"
+
+#define SAIO_TREE_FORMAT "T"
 
 
 typedef struct SaioStep {
@@ -31,8 +35,10 @@ void print_query_tree_list(char *intro, List *trees);
 
 void trace_join(const char *path, RelOptInfo *r1, RelOptInfo *r2);
 
-int debug_vprintf(FILE *f, const char *format, ...);
-int debug_fprintf(FILE *f, const char *format, ...);
-int debug_printf(const char *format, ...);
+
+int print_tree_node(FILE *stream, const struct printf_info *info,
+					const void *const *args);
+int print_tree_node_arginfo(const struct printf_info *info, size_t n,
+							int *argtypes, int *size);
 
 #endif /* SAIO_DEBUG_H */

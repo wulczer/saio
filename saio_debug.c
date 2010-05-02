@@ -1,6 +1,7 @@
 #include "postgres.h"
 
 #include <stdio.h>
+#include <printf.h>
 
 #include "optimizer/paths.h"
 #include "saio_debug.h"
@@ -38,6 +39,66 @@ dump_debugging(SaioPrivateData *private)
 		fclose(f);
 		break;
 	}
+}
+
+
+int
+print_tree_node_arginfo(const struct printf_info *info, size_t n,
+						int *argtypes, int *size)
+{
+	if (n > 0) {
+		argtypes[0] = PA_POINTER;
+		*size = sizeof(QueryTree *);
+	}
+	return 1;
+}
+
+
+int
+print_tree_node(FILE *stream, const struct printf_info *info,
+					const void *const *args)
+{
+	const QueryTree	*tree;
+	char			*buffer;
+	int				len;
+	Relids			tmprelids;
+	int				x;
+	bool			first = true;
+
+	tree = *((QueryTree **) (args[0]));
+
+	if (tree->rel == NULL)
+	{
+		len = asprintf(&buffer, "(nil)");
+		if (len == -1)
+			return -1;
+		len = fprintf(stream, "%*s", (info->left ? -info->width : info->width),
+                      buffer);
+		free(buffer);
+		return len;
+	}
+
+	buffer = malloc(bms_num_members(tree->rel->relids) * 4 + 2);
+	if (!buffer)
+		return -1;
+
+	buffer[0] = '\0';
+	tmprelids = bms_copy(tree->rel->relids);
+	len = 0;
+	while ((x = bms_first_member(tmprelids)) >= 0)
+	{
+		sprintf(buffer + len, first ? "(" : " ");
+		len += 1;
+		len += sprintf(buffer + len, "%d", x);
+		first = false;
+	}
+	sprintf(buffer + len, ")");
+	bms_free(tmprelids);
+
+	len = fprintf(stream, "%*s", (info->left ? -info->width : info->width),
+				  buffer);
+	free(buffer);
+	return len;
 }
 
 
