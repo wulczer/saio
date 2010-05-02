@@ -6,6 +6,8 @@
 #include "optimizer/paths.h"
 #include "saio_debug.h"
 
+#define printf(str, ...)
+
 
 void
 dump_debugging(SaioPrivateData *private)

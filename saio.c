@@ -28,6 +28,8 @@
 #include "saio_debug.h"
 #endif
 
+#define printf(str, ...)
+
 #define SAIO_COST(rel) rel->cheapest_total_path->total_cost
 
 #define OTHER_CHILD(node, child) (node)->left == (child) ? (node)->right : (node)->left
