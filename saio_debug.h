@@ -30,12 +30,12 @@ void dump_query_tree_list(PlannerInfo *root, QueryTree *tree,
 
 void dump_costs(PlannerInfo *root, char *path);
 
-void verify_query_tree(QueryTree *tree, char *path);
-
 void print_query_tree_list(char *intro, List *trees);
 
 void trace_join(const char *path, RelOptInfo *r1, RelOptInfo *r2);
 
+void validate_tree(QueryTree *tree);
+void validate_list(List *l);
 
 int print_tree_node(FILE *stream, const struct printf_info *info,
 					const void *const *args);

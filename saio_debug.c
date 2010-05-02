@@ -270,3 +270,32 @@ trace_join(const char *path, RelOptInfo *r1, RelOptInfo *r2)
 	fprintf(f, ")\n");
 	fclose(f);
 }
+
+void
+validate_tree(QueryTree *tree)
+{
+	if (tree == NULL)
+		return;
+
+	Assert(tree->rel != NULL);
+	validate_tree(tree->left);
+	validate_tree(tree->right);
+}
+
+void
+validate_list(List *l)
+{
+	ListCell	*lc;
+	ListCell	dereferenced;
+	int			i;
+
+	i = 0;
+	printf("Validating list %p: ", l);
+	foreach(lc, l)
+	{
+		printf("%d ", i++);
+		fflush(stdout);
+		dereferenced = *lc;
+	}
+	printf("\n");
+}
