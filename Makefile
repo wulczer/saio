@@ -1,8 +1,8 @@
 MODULE_big = saio
-OBJS = saio_main.o saio_join.o saio.o
+OBJS = saio_main.o saio.o
 
 PG_CONFIG = pg_config
-PG_CPPFLAGS = -Werror
+PG_CPPFLAGS = -Werror -Wno-unused-function -Wno-format
 
 ifneq (,$(findstring --enable-cassert,$(shell $(PG_CONFIG) --configure)))
 	PG_CPPFLAGS += -DSAIO_DEBUG
