@@ -1250,7 +1250,8 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	 * root->join_rel_hash and to be able to free the memory taken by
 	 * constructing paths after determining an initial join order.
 	 */
-	/* context_enter(root); */
+	if (saio_move_algorithm != SAIO_ALGORITHM_RECALC)
+		context_enter(root);
 
 	tree = make_query_tree(root, initial_rels);
 	/* Set the initial tree cost */
@@ -1260,11 +1261,14 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	 * Copy the tree structure to the correct memory context. The rest of the
 	 * memory allocated in make_query_tree() will get freed in context_exit().
 	 */
-	/* MemoryContextSwitchTo(private.old_context); */
-	/* tree = copy_tree_structure(tree); */
-	/* MemoryContextSwitchTo(private.sketch_context); */
+	if (saio_move_algorithm != SAIO_ALGORITHM_RECALC)
+	{
+		MemoryContextSwitchTo(private.old_context);
+		tree = copy_tree_structure(tree);
+		MemoryContextSwitchTo(private.sketch_context);
 
-	/* context_exit(root); */
+		context_exit(root);
+	}
 
 	/* Set the number of loops before considering equilibrium */
 	private.equilibrium_loops = levels_needed * saio_equilibrium_factor;
