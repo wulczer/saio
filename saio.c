@@ -587,6 +587,7 @@ keep_minimum_state(PlannerInfo *root, QueryTree *tree, Cost new_cost)
 		if ((private->min_tree != NULL) && (private->min_cost >= new_cost))
 		{
 			/* we broke the global minimum, forget it */
+			printf("[%04d] global minimum broken\n", private->loop_no);
 			MemoryContextReset(private->min_context);
 			private->min_tree = NULL;
 		}
@@ -603,6 +604,7 @@ keep_minimum_state(PlannerInfo *root, QueryTree *tree, Cost new_cost)
 			if (private->min_tree != NULL)
 				MemoryContextReset(private->min_context);
 
+			printf("[%04d] new global minimum\n", private->loop_no);
 			/* copy the current state into the global minimum context */
 			old_context = MemoryContextSwitchTo(private->min_context);
 			private->min_tree = copy_tree_structure(tree);
@@ -865,11 +867,15 @@ saio_recalc_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 		Assert(ok);
 	}
 
+	private = (SaioPrivateData *) root->join_search_private;
+
+	printf("[%04d] before move min tree is %p with cost %10.4f\n",
+		   private->loop_no, private->min_tree,
+		   private->min_tree == NULL ? 0 : private->min_cost);
+
 	/* if less than four trees to choose from, return immediately */
 	if (list_length(all_trees) < 4)
 		return false;
-
-	private = (SaioPrivateData *) root->join_search_private;
 
 	context_enter_mem(root);
 
@@ -940,8 +946,15 @@ saio_recalc_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 	validate_list(root->join_rel_list);
 #endif
 
+	/* swap the subtrees to temporarily go back to the previous state */
+	swap_subtrees(tree1, tree2);
 	keep_minimum_state(root, tree, SAIO_COST(tree->rel));
 	private->previous_cost = SAIO_COST(tree->rel);
+	swap_subtrees(tree1, tree2);
+
+	printf("[%04d] after move min tree is %p with cost %10.4f\n",
+		   private->loop_no, private->min_tree,
+		   private->min_tree == NULL ? 0 : private->min_cost);
 
 	return true;
 }
@@ -1343,6 +1356,10 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 #ifdef SAIO_DEBUG
 			private.steps = lappend(private.steps, step);
 #endif
+			printf("[%04d] a the end of the loop min tree is %p with cost %10.4f\n",
+				   private.loop_no, private.min_tree,
+				   private.min_tree == NULL ? 0 : private.min_cost);
+
 		} while (!equilibrium(root));
 
 		reduce_temperature(root);
@@ -1355,12 +1372,23 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	list_free_deep(private.steps);
 #endif
 
+	printf("[%04d] at the end of the algorithm min tree is %p with cost %10.4f\n",
+		   private.loop_no, private.min_tree,
+		   private.min_tree == NULL ? 0 : private.min_cost);
+
 	/* if there is a global minimum, pick it */
 	if (private.min_tree != NULL)
+	{
 		tree = private.min_tree;
+		printf("The cheapest tree is %10.4f\n", private.min_cost);
+	}
 
 	/* Rebuild the final rel in the correct memory context */
 	recalculate_tree(root, tree);
+#ifdef SAIO_DEBUG
+	snprintf(path, 256, "/tmp/saio-final.dot");
+	dump_query_tree(root, tree, NULL, NULL, true, path);
+#endif
 	res = tree->rel;
 
 	/* Clean up */
