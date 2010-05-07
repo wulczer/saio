@@ -38,6 +38,14 @@
 static char	path[256];
 #endif
 
+
+typedef struct JoinHashEntry
+{
+	Relids		join_relids;	/* hash key --- MUST BE FIRST */
+	RelOptInfo *join_rel;
+} JoinHashEntry;
+
+
 /*
  * Save the current state of the variables that get modified during
  * make_join_rel(). Enter a temporary memory context that will get reset when
@@ -736,14 +744,57 @@ reset_memory(QueryTree *tree, void *extra_data)
 }
 
 
+static void
+rebuild_join_rel_hash(PlannerInfo *root)
+{
+	HTAB	   *hashtab;
+	HASHCTL		hash_ctl;
+	ListCell   *l;
+
+	/* Create the hash table */
+	MemSet(&hash_ctl, 0, sizeof(hash_ctl));
+	hash_ctl.keysize = sizeof(Relids);
+	hash_ctl.entrysize = sizeof(JoinHashEntry);
+	hash_ctl.hash = bitmap_hash;
+	hash_ctl.match = bitmap_match;
+	hash_ctl.hcxt = CurrentMemoryContext;
+	hashtab = hash_create("JoinRelHashTable",
+						  256L,
+						  &hash_ctl,
+					HASH_ELEM | HASH_FUNCTION | HASH_COMPARE | HASH_CONTEXT);
+
+	/* Insert all the already-existing joinrels */
+	foreach(l, root->join_rel_list)
+	{
+		RelOptInfo *rel = (RelOptInfo *) lfirst(l);
+		JoinHashEntry *hentry;
+		bool		found;
+
+		hentry = (JoinHashEntry *) hash_search(hashtab,
+											   &(rel->relids),
+											   HASH_ENTER,
+											   &found);
+		Assert(!found);
+		hentry->join_rel = rel;
+	}
+
+	root->join_rel_hash = hashtab;
+	printf("Created a joinrel hash %p\n", hashtab);
+}
+
+
 static bool
 recalculate(QueryTree *tree, void *extra_data)
 {
 	PlannerInfo		*root = (PlannerInfo *) extra_data;
+	SaioPrivateData	*private;
 	RelOptInfo		*rel;
 	MemoryContext	ctx;
 	ListCell		*prev, *cur;
+	bool			had_no_hash;
 	int				n;
+
+	private = (SaioPrivateData *) root->join_search_private;
 
 	printf("Recalculating tree from %T and %T\n", tree->left, tree->right);
 
@@ -765,6 +816,7 @@ recalculate(QueryTree *tree, void *extra_data)
 	printf("The join list previously had %d elements\n", n);
 	printf("Creating a relation in memory context %p\n", CurrentMemoryContext);
 	prev = list_tail(root->join_rel_list);
+	had_no_hash = (root->join_rel_hash == NULL);
 	rel = make_join_rel(root, tree->left->rel, tree->right->rel);
 	printf("The join list now has %d elements, created %p\n",
 		   list_length(root->join_rel_list), rel);
@@ -772,11 +824,15 @@ recalculate(QueryTree *tree, void *extra_data)
 	if (rel == NULL) {
 		return false;
 	}
+	private->joinrels_built++;
 	Assert(list_length(root->join_rel_list) == n + 1);
 	/* move the list cell to the correct memory context */
 	cur = list_tail(root->join_rel_list);
 	root->join_rel_list = list_delete_cell(root->join_rel_list, cur, prev);
 	root->join_rel_list = lappend(root->join_rel_list, rel);
+	/* move the rel hash to the correct memory context */
+	if (had_no_hash && root->join_rel_hash != NULL)
+		rebuild_join_rel_hash(root);
 	tree->rel = rel;
 	set_cheapest(tree->rel);
 	return true;
@@ -865,6 +921,8 @@ saio_recalc_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 		/* rebuild the tree putting each node in its own context */
 		ok = recalculate_tree_cutoff_ctx(root, tree, NULL, true);
 		Assert(ok);
+		if (root->join_rel_hash != NULL)
+			rebuild_join_rel_hash(root);
 	}
 
 	private = (SaioPrivateData *) root->join_search_private;
