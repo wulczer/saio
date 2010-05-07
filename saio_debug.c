@@ -14,6 +14,7 @@ dump_debugging(SaioPrivateData *private)
 {
 	char path[1024];
 	int suffix;
+	int i = 0;
 
 	for (suffix = 0; ; suffix++)
 	{
@@ -34,8 +35,8 @@ dump_debugging(SaioPrivateData *private)
 		{
 			SaioStep	*step = (SaioStep *) lfirst(lc);
 
-			fprintf(f, "%10.4f  %10.4f  %1d  %6d\n",
-					step->temperature, step->cost,
+			fprintf(f, "%04d %10.4f  %10.4f  %1d  %6d\n",
+					i++, step->temperature, step->cost,
 					step->move_result, step->joinrels_built);
 		}
 		fclose(f);
