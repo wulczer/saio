@@ -1454,6 +1454,7 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	MemoryContextDelete(private.sketch_context);
 	MemoryContextDelete(private.min_context);
 	root->join_search_private = NULL;
+	fflush(stdout);
 
 	return res;
 }
