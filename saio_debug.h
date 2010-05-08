@@ -12,7 +12,7 @@
 typedef struct SaioStep {
 	double			temperature;
 	Cost			cost;
-	bool			move_result;
+	int				move_result;
 	int				joinrels_built;
 } SaioStep;
 

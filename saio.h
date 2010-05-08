@@ -86,6 +86,15 @@ typedef enum saio_algorithm
 } saio_algorithm;
 
 
+enum
+{
+	SAIO_MOVE_OK = 0,
+	SAIO_MOVE_FAILED,
+	SAIO_MOVE_DISCARDED,
+	SAIO_MOVE_IMPOSSIBLE
+};
+
+
 RelOptInfo *saio(PlannerInfo *root, int levels_needed, List *initial_rels);
 
 void _PG_init(void);

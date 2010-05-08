@@ -822,6 +822,7 @@ recalculate(QueryTree *tree, void *extra_data)
 		   list_length(root->join_rel_list), rel);
 	MemoryContextSwitchTo(ctx);
 	if (rel == NULL) {
+		printf("Recalculation failed\n");
 		return false;
 	}
 	private->joinrels_built++;
@@ -909,13 +910,14 @@ swap_and_recalc(PlannerInfo *root, QueryTree *tree,
 }
 
 
-static bool
+static int
 saio_recalc_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 {
 	List			*choices, *tmp;
 	QueryTree		*tree1, *tree2;
 	SaioPrivateData	*private;
 	bool			ok;
+	int				move_result = SAIO_MOVE_FAILED;
 
 	if (MemoryContextIsEmpty(tree->ctx)) {
 		/* rebuild the tree putting each node in its own context */
@@ -933,7 +935,7 @@ saio_recalc_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 
 	/* if less than four trees to choose from, return immediately */
 	if (list_length(all_trees) < 4)
-		return false;
+		return SAIO_MOVE_IMPOSSIBLE;
 
 	context_enter_mem(root);
 
@@ -950,7 +952,7 @@ saio_recalc_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 	if (choices == NIL)
 	{
 		context_exit_mem(root);
-		return false;
+		return SAIO_MOVE_IMPOSSIBLE;
 	}
 
 	tree2 = list_nth(choices, saio_randint(root, 0, list_length(choices) - 1));
@@ -972,7 +974,10 @@ saio_recalc_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 	ok = swap_and_recalc(root, tree, tree1, tree2);
 
 	if (ok)
+	{
+		move_result = SAIO_MOVE_DISCARDED;
 		ok = acceptable(root, SAIO_COST(tree->rel));
+	}
 
 	if (!ok) {
 		printf("[%04d] First swap and recalc failed, reverting\n", private->loop_no);
@@ -992,7 +997,7 @@ saio_recalc_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 		validate_list(root->join_rel_list);
 #endif
 
-		return false;
+		return move_result;
 	}
 
 #ifdef SAIO_DEBUG
@@ -1014,7 +1019,7 @@ saio_recalc_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 		   private->loop_no, private->min_tree,
 		   private->min_tree == NULL ? 0 : private->min_cost);
 
-	return true;
+	return SAIO_MOVE_OK;
 }
 
 
@@ -1371,7 +1376,7 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	do {
 
 		do {
-			bool	move_result = false;
+			int			move_result = 0;
 #ifdef SAIO_DEBUG
 			/* save values for debugging */
 			SaioStep	*step = palloc(sizeof(SaioStep));
@@ -1395,10 +1400,10 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 				default:
 					elog(ERROR, "invalid algorithm: %d", saio_move_algorithm);
 			}
-			if (move_result)
+			if (move_result == 0)
 			{
 #ifdef SAIO_DEBUG
-				step->move_result = true;
+				step->move_result = 0;
 				private.loop_no++;
 #endif
 				private.failed_moves = 0;
@@ -1406,7 +1411,7 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 			else
 			{
 #ifdef SAIO_DEBUG
-				step->move_result = false;
+				step->move_result = move_result;
 				private.loop_no++;
 #endif
 				private.failed_moves++;
