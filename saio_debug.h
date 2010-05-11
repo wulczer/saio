@@ -28,6 +28,11 @@ void dump_query_tree_list(PlannerInfo *root, QueryTree *tree,
 						  QueryTree *selected1, QueryTree *selected2,
 						  List *selected, bool costs, char *path);
 
+void dump_query_tree_list2(PlannerInfo *root, QueryTree *tree,
+						   QueryTree *selected1, QueryTree *selected2,
+						   List *lselected1, List *lselected2,
+						   bool costs, char *path);
+
 void dump_costs(PlannerInfo *root, char *path);
 
 void print_query_tree_list(char *intro, List *trees);

@@ -37,10 +37,12 @@ extern int		saio_move_algorithm;
  */
 typedef struct QueryTree {
 	RelOptInfo			*rel;
+	RelOptInfo			*tmp;
 	struct QueryTree	*left;
 	struct QueryTree	*right;
 	struct QueryTree	*parent;
 	MemoryContext		ctx;
+	MemoryContext		tmpctx;
 } QueryTree;
 
 
