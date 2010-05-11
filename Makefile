@@ -9,5 +9,11 @@ ifneq (,$(findstring --enable-cassert,$(shell $(PG_CONFIG) --configure)))
 	OBJS += saio_debug.o
 endif
 
+EXTRA_CLEAN = saio.toc saio.aux saio.pdf saio.log saio.out saio.nav
+
+%.pdf: %.tex
+	pdflatex $<
+	pdflatex $<
+
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)

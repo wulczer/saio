@@ -1,3 +1,11 @@
 *.o
 *.so
 .deps
+saio.toc
+saio.aux
+saio.pdf
+saio.log
+saio.out
+saio.nav
+saio.snm
+saio.vrb
