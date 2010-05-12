@@ -1,12 +1,12 @@
 \documentclass{beamer}
 
 \usepackage[utf8]{inputenc}
-\usepackage{listings}
 
 \usetheme{Warsaw}
 
 \useoutertheme{infolines}
 \setbeamertemplate{blocks}[default]
+\hypersetup{linkbordercolor={ 0.36 1 0.54 }}
 %% \setbeamertemplate{items}[circle]
 
 % \logo{\includegraphics[width=15px,height=15px]{/home/wulczer/flumotion.png}}
@@ -25,8 +25,6 @@
 \date{\today}
 
 \begin{document}
-
-\lstset{language=C}
 
 \frame{\titlepage}
 
@@ -97,6 +95,13 @@
 \subsection{Simulated Annealing overview}
 
 \begin{frame}
+  \frametitle{Previous work}
+  FIXME
+
+  Twopo, the paper by the Greek, suggestions on the mailing list.
+\end{frame}
+
+\begin{frame}
   \frametitle{What is Simulated Annealing}
 
   \begin{columns}
@@ -113,7 +118,7 @@
 \end{frame}
 
 \begin{frame}
-  \frametitle{The SA Algorithm - cont.}
+  \frametitle{The SA Algorithm cont.}
 
   \begin{itemize}
   \item the system starts with an initial temperature and a random state
@@ -131,7 +136,7 @@
 
 \end{frame}
 
-\begin{frame}[fragile]
+\begin{frame}<-6>[fragile,label=sa-algorithm]
   \frametitle{The SA algorithm}
 
 \begin{block}{Simulated Annealing}
@@ -153,20 +158,27 @@
 
 \end{frame}
 
-\begin{frame}
-  \frametitle{The SA Algorithm - cont.}
+\begin{frame}<1>[label=sa-problems]
+  \frametitle<1>{The SA Algorithm cont.}
+  %% \frametitle<2->{SA Algorithm problems}
 
 Implementing Simulated Annealing means solving the following problems:
 
   \begin{itemize}
-  \item finding an initial state
-  \item generating subsequent states
-  \item defining an acceptance function
-  \item determining the equilibrium condition
-  \item suitably lowering the temperature
-  \item determining the freeze conditions
+  \item \structure<3->{finding an initial state}
+  \item \alert<4->{generating subsequent states}
+  \item \structure<3->{defining an acceptance function}
+  \item \structure<3->{determining the equilibrium condition}
+  \item \structure<3->{suitably lowering the temperature}
+  \item \structure<3->{determining the freeze conditions}
   \end{itemize}
+
+  \begin{center}
+    \only<3->{Some are \structure{easy}}\only<4->{, some are \alert{hard}}
+  \end{center}
 \end{frame}
+
+\againframe<6->{sa-algorithm}
 
 \begin{frame}
   \frametitle{A visual example}
@@ -174,7 +186,120 @@ Implementing Simulated Annealing means solving the following problems:
 \end{frame}
 
 \subsection{PostgreSQL specifics}
+
+\begin{frame}
+  \frametitle{Differences from the original algorithm}
+
+  \begin{itemize}
+  \item PostgreSQL always considers all possible paths for a relation
+  \item \texttt{make\_join\_rel} is symmetrical
+  \item you can have join order constraints (duh)
+  \item the planner is keeping a list of all relations...
+  \item ... and sometimes turns it into a hash
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Join order representation}
+
+  \begin{itemize}
+  \item SAIO represents joins as \alert{query trees}
+  \item chosen to mimic the original algorithm more closely
+  \item each state is a query tree
+  \item leaves are basic relations
+  \item internal nodes are joinrels
+  \item the joinrel in the root of the tree is the current result
+  \end{itemize}
+\end{frame}
+
+\begin{frame}<1>[label=qt-zoom]
+  \frametitle<1>{Query trees}
+  \framezoom<1><2>[border](1.2cm,0cm)(5.8cm,4.4cm)
+
+  \begin{columns}
+    \begin{column}{7cm}
+      \includegraphics[width=7cm,height=8cm]{qt-example.png}
+    \end{column}
+    \begin{column}{5cm}
+      Example query tree for a six relation join.
+    \end{column}
+  \end{columns}
+
+\end{frame}
+
+\begin{frame}
+  \frametitle{Query trees cont.}
+
+  Some useful query tree properties:
+
+  \begin{itemize}[<+->]
+  \item symmetrical (no difference between left and right child)
+  \item fully determined by the tree structure and relations in leaves
+  \item each node has a cost
+  \end{itemize}
+
+  \begin{center}
+    \includegraphics[width=8cm]{qt-symmetrical-1.png}<1>
+    \includegraphics[width=8cm]{qt-symmetrical-2.png}<2>
+    \includegraphics[width=8cm]{qt-symmetrical-3.png}<3>
+  \end{center}
+
+\end{frame}
+
 \subsection{Query tree transformations}
+
+\againframe<2->{sa-problems}
+
+\begin{frame}
+  \frametitle{The easy problems - initial state}
+
+  \begin{block}{Finding an initial state}
+    Make base relations into one-node trees, keep merging them on joins with
+    restriction clases, forcefully merge the remaining ones using Cartesian
+    joins. Results in a query tree that is as left-deep as possible.
+    \\
+    \hfill
+    \\
+    This is exactly what GEQO does.
+  \end{block}
+\end{frame}
+
+\begin{frame}
+  \frametitle{The easy problems - temperature}
+
+  \begin{block}{The acceptance function}
+    A uphill move is accepted with the probability that depends on the current temperature.
+    $$P(accepted) = e^{\frac{cost_{prev} - cost_{new}}{temperature}}$$
+  \end{block}
+
+  \begin{block}{Lowering the temperature}
+    The initial temperature depends on the number of initial relations and
+    drops geometrically.
+    $$initial\_temperature = I * initial\_rels$$
+    $$new\_temperature = temperature * K$$ where $$0 < K < 1$$
+  \end{block}
+\end{frame}
+
+\begin{frame}
+  \frametitle{The easy problems - equilibrium and freezing}
+
+  \begin{block}{Equilibrium condition}
+    Equilibrium is reached after a fixed number of moves that depend on the
+    number of initial relations.
+    $$moves\_to\_equilibrium = N * initial\_rels$$
+  \end{block}
+
+  \begin{block}{Freezing condition}
+    The system freezes if temperature falls below 1 and a fixed number of
+    consecutive moves has failed.
+  \end{block}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Move types}
+
+  Describe the 3 move types here.
+\end{frame}
 
 \section{The results}
 \subsection{Comparison with GEQO}
@@ -187,7 +312,8 @@ Implementing Simulated Annealing means solving the following problems:
 \subsection{Questions}
 
 
-\begin{frame}
-\end{frame}
+\appendix
+
+\againframe<2>[plain]{qt-zoom}
 
 \end{document}
