@@ -298,7 +298,150 @@ Implementing Simulated Annealing means solving the following problems:
 \begin{frame}
   \frametitle{Move types}
 
-  Describe the 3 move types here.
+  The difficult part seems to be generating subsequent states.
+
+  \begin{itemize}
+  \item a number of move generating approaches can be taken
+  \item the most costly operations is creating a joinrel, especially computing
+    paths
+  \item need to free memory between steps, otherwise risk overrunning
+  \item need to deal with planner scribbling on its structures when creating
+    joinrels
+  \item how to efficiently sample the solution space?
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{SAIO \texttt{move}}
+
+  \begin{itemize}
+  \item randomly choose two nodes from the query tree
+  \item swap the subtrees around
+  \item recalculate the whole query tree
+  \item if it cannot be done, the move fails
+  \item check if the cost of the new tree is acceptable
+  \item if not, the move fails
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{SAIO \texttt{move} example}
+
+  \onslide<1->{Take a tree,}
+  \onslide<2->{choose two nodes,}
+  \onslide<3->{swap them around}
+
+  \begin{columns}[b]
+    \begin{column}{6.2cm}
+      \includegraphics<1>[width=6.2cm,height=6.9cm]{saio-move-1.png}
+      \includegraphics<2->[width=6.2cm,height=6.9cm]{saio-move-2.png}
+    \end{column}
+    \begin{column}{6.2cm}
+      \includegraphics<3->[width=6.2cm]{saio-move-3.png}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}
+  \frametitle{SAIO \texttt{move} problems}
+
+  \begin{itemize}
+  \item choosing a node narrows down the possible choices for the second node
+    \begin{itemize}
+    \item can't choose descendant node (how would that work?)
+    \item can't choose ancestor node (for the same reason)
+    \item can't choose sibling node (because of symmetry)
+    \end{itemize}
+  \item the changes to the tree are big, the algorithm takes ``large steps''
+  \item if the resulting query tree is invalid, lots of work is thrown away
+  \item any join failure results in the whole move failing, so it doesn't
+    explore the solution space very deeply
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{SAIO \texttt{pivot}}
+
+  \begin{itemize}
+  \item change \texttt{(A join B) join C} into \texttt{A join (B join C)}
+  \item in practise, choose a node at random
+  \item swap the subtrees of one of its children and the sibling's
+  \item continue trying such pivots until all nodes have been tried
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{SAIO \texttt{pivot} example}
+
+  \onslide<1->{Take a tree,}
+  \onslide<2->{choose a node,}
+  \onslide<3->{pivot,}
+  \onslide<4->{choose another,}
+  \onslide<5->{pivot ...}
+
+  \begin{columns}[b]
+    \begin{column}{6.2cm}
+      \includegraphics<1>[width=6.2cm,height=6.9cm]{saio-pivot-1.png}
+      \includegraphics<2-3>[width=6.2cm,height=6.9cm]{saio-pivot-2.png}
+      \includegraphics<4->[width=6.2cm,height=6.9cm]{saio-pivot-4.png}
+    \end{column}
+    \begin{column}{6.2cm}
+      \includegraphics<3>[width=6.2cm]{saio-pivot-3.png}
+      \includegraphics<4>[width=6.2cm]{saio-pivot-5.png}
+      \includegraphics<5->[width=6.2cm]{saio-pivot-6.png}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}
+  \frametitle{SAIO \texttt{pivot} problems}
+
+  \begin{itemize}
+  \item each move explores a lot of possibilities, but requires lots of
+    computation
+  \item does not introduce big changes, which sometimes are needed to break
+    pessimal joins
+    \begin{itemize}
+    \item actually, it's not obvious that the solution space is smooth wrt
+      costs
+    \item small changes in the structure may result it gigantic changes in
+      costs
+    \item might want to augment the cost assesment function (number of
+      non-cross joins?)
+    \end{itemize}
+  \item the same join might be recalculated many times in each step
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{SAIO \texttt{recalc}}
+
+  \begin{itemize}
+  \item essentialy the same as \texttt{move}
+  \item recalculate the joins from the chosen nodes up to the common ancestor
+  \item if it succeeded, recalculate the nodes from the common ancestor up to
+    the root node
+  \item avoids pointless recalculations when joins fail
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{SAIO \texttt{recalc} example}
+
+  %% \includegraphics<1->[width=\textwidth]{saio-recalc-1.png}
+  %% \includegraphics<2->[width=\textwidth]{saio-recalc-2.png}
+  %% \includegraphics<3->[width=\textwidth]{saio-recalc-3.png}
+  %% \includegraphics<4->[width=\textwidth]{saio-recalc-4.png}
+\end{frame}
+
+\begin{frame}
+  \frametitle{SAIO \texttt{recalc} problems}
+
+  \begin{itemize}
+  \item does really nasty hacks
+  \item does not speed things up as much as it should
+  \item probably need a different approach
+  \end{itemize}
 \end{frame}
 
 \section{The results}
@@ -307,10 +450,58 @@ Implementing Simulated Annealing means solving the following problems:
 \section{The future}
 \subsection{Development focuses}
 
+\begin{frame}
+  \frametitle{What the future brings}
+
+  \begin{itemize}
+  \item MSc thesis :o)
+  \item smarter tree transformation methods
+  \item less useless computation
+  \item perhaps some support from the core infrastructure
+  \item faster and higher quality results than GEQO
+  \item \texttt{git://wulczer.org/saio.git}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Acknowledgements}
+
+  \begin{itemize}
+  \item Adriano Lange, the author of the TWOPO implementation
+  \item Andres Freund, for providing the craziest test query ever
+  \item Robert Haas, for providing a slightly less crazy test query
+  \item dr Krzysztof Stencel, for help and guidance
+  \item Flumotion Services, for letting me mess with the PG planner instead of
+    doing work
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Further reading}
+
+  \begin{thebibliography}{Steinbrunn 1997}
+
+  \bibitem[Ioannidis 1987]{ioannidis}
+    Yannis~E. Ioannidis and Eugene Wong.
+    \newblock Query optimization by simulated annealing.
+    \newblock {\em SIGMOD Rec.}, 16(3):9--22, 1987.
+
+  \bibitem[Steinbrunn 1997]{steinbrunn}
+    Michael Steinbrunn, Guido Moerkotte, and Alfons Kemper.
+    \newblock Heuristic and randomized optimization for the join ordering problem.
+    \newblock {\em The VLDB Journal}, 6(3):191--208, 1997.
+
+  \end{thebibliography}
+\end{frame}
 
 \section{The end}
-\subsection{Questions}
+\subsection*{Questions}
 
+\begin{frame}
+\begin{beamercolorbox}[center]{note}
+  \Huge Questions?
+\end{beamercolorbox}
+\end{frame}
 
 \appendix
 

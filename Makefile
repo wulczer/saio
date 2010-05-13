@@ -9,11 +9,22 @@ ifneq (,$(findstring --enable-cassert,$(shell $(PG_CONFIG) --configure)))
 	OBJS += saio_debug.o
 endif
 
+SAIO_DOTS = \
+	$(wildcard saio-move-*.dot) \
+	$(wildcard saio-pivot-*.dot) \
+	$(wildcard saio-recalc-*.dot)
+
+SAIO_PNGS = $(patsubst %.dot,%.png,$(SAIO_DOTS))
+
 EXTRA_CLEAN = \
 	saio.toc saio.aux saio.pdf saio.log \
-	saio.out saio.nav saio.snm saio.vrb
+	saio.out saio.nav saio.snm saio.vrb \
+	$(SAIO_PNGS)
 
-%.pdf: %.tex
+%.png : %.dot
+	dot -Tpng -o $@ $<
+
+%.pdf: %.tex $(SAIO_PNGS)
 	pdflatex $<
 	pdflatex $<
 
