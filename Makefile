@@ -16,6 +16,8 @@ SAIO_DOTS = \
 
 SAIO_PNGS = $(patsubst %.dot,%.png,$(SAIO_DOTS))
 
+.SECONDARY : $(SAIO_PNGS)
+
 EXTRA_CLEAN = \
 	saio.toc saio.aux saio.pdf saio.log \
 	saio.out saio.nav saio.snm saio.vrb \
