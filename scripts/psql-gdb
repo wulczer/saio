@@ -1,0 +1,2 @@
+#!/bin/bash
+gdb --pid $(ps axu | grep "[p]ostgres: $USER" | awk '{print $2}')
