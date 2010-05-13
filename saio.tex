@@ -418,20 +418,37 @@ Implementing Simulated Annealing means solving the following problems:
 
   \begin{itemize}
   \item essentialy the same as \texttt{move}
+  \item but keeps all the relations \structure{built} between moves
   \item recalculate the joins from the chosen nodes up to the common ancestor
   \item if it succeeded, recalculate the nodes from the common ancestor up to
     the root node
   \item avoids pointless recalculations when joins fail
+  \item needs to remove individual joinrels from the planner (nasty!)
   \end{itemize}
 \end{frame}
 
 \begin{frame}
   \frametitle{SAIO \texttt{recalc} example}
 
-  %% \includegraphics<1->[width=\textwidth]{saio-recalc-1.png}
-  %% \includegraphics<2->[width=\textwidth]{saio-recalc-2.png}
-  %% \includegraphics<3->[width=\textwidth]{saio-recalc-3.png}
-  %% \includegraphics<4->[width=\textwidth]{saio-recalc-4.png}
+  \onslide<1->{Take a tree,}
+  \onslide<2->{choose two nodes,}
+  \onslide<3->{swap them around,}
+  \onslide<4->{recalculate up to the common ancestor,}
+  \onslide<5->{just discard the built joinrels if failure,}
+  \onslide<6->{recalculate the rest of the relations}
+
+  \begin{columns}
+    \begin{column}{6.2cm}
+      \includegraphics<1>[width=6.2cm,height=6.6cm]{saio-recalc-1.png}
+      \includegraphics<2->[width=6.2cm,height=6.6cm]{saio-recalc-2.png}
+    \end{column}
+    \begin{column}{6.2cm}
+      \includegraphics<3>[width=6.2cm,height=6.6cm]{saio-recalc-3.png}
+      \includegraphics<4>[width=6.2cm,height=6.6cm]{saio-recalc-4.png}
+      \includegraphics<5>[width=6.2cm,height=6.6cm]{saio-recalc-5.png}
+      \includegraphics<6>[width=6.2cm,height=6.6cm]{saio-recalc-6.png}
+    \end{column}
+  \end{columns}
 \end{frame}
 
 \begin{frame}
@@ -440,7 +457,9 @@ Implementing Simulated Annealing means solving the following problems:
   \begin{itemize}
   \item does really nasty hacks
   \item does not speed things up as much as it should
-  \item probably need a different approach
+  \item does not solve the problem of failing, it just makes failures cheaper
+  \item because the trees are usually left-deep, the benefits from partial
+    recalculation are not as big
   \end{itemize}
 \end{frame}
 
