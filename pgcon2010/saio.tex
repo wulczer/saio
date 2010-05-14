@@ -428,6 +428,7 @@ Implementing Simulated Annealing means solving the following problems:
   \item if it succeeded, recalculate the nodes from the common ancestor up to
     the root node
   \item avoids pointless recalculations when joins fail
+  \item each query tree node has its own memory context
   \item needs to remove individual joinrels from the planner (nasty!)
   \end{itemize}
 \end{frame}
@@ -470,6 +471,44 @@ Implementing Simulated Annealing means solving the following problems:
 
 \section{The results}
 \subsection{Comparison with GEQO}
+
+\begin{frame}
+  \frametitle{Moderately big query}
+
+  Collapse limits set to 100. Move algorithm used is \texttt{recalc}.
+
+  \begin{center}
+    \begin{tabular}{ccccc}
+      algorithm & equilibrium loops & temp reduction & avg cost & avg time
+      \\ \hline \hline
+      GEQO & n/a & n/a & 1617.81 & 0.21128 \\ \hline
+      SAIO & 4   & 0.4 & ? & ? \\ \hline
+      SAIO & 6   & 0.6 & ? & ? \\ \hline
+      SAIO & 8   & 0.6 & ? & ? \\ \hline
+      SAIO & 12  & 0.6 & ? & ? \\ \hline
+    \end{tabular}
+  \end{center}
+
+\end{frame}
+
+\begin{frame}
+  \frametitle{Very big query}
+
+  Collapse limits set to 100. Move algorithm used is \texttt{recalc}.
+
+  \begin{center}
+    \begin{tabular}{ccccc}
+      algorithm & equilibrium loops & temp reduction & avg cost & avg time
+      \\ \hline \hline
+      GEQO & n/a & n/a & 1617.81 & 0.21128 \\ \hline
+      SAIO & 4   & 0.4 & ? & ? \\ \hline
+      SAIO & 6   & 0.6 & ? & ? \\ \hline
+      SAIO & 8   & 0.6 & ? & ? \\ \hline
+      SAIO & 12  & 0.6 & ? & ? \\ \hline
+    \end{tabular}
+  \end{center}
+
+\end{frame}
 
 \section{The future}
 \subsection{Development focuses}
