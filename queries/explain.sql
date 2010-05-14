@@ -1,15 +1,8 @@
 SET SEARCH_PATH = test_data, test_view;
-
-LOAD 'saio';
-SET saio_algorithm TO recalc;
-set saio_initial_temperature_factor to 0.01;
-set saio_temperature_reduction_factor to 0.1;
-set join_collapse_limit to 25;
-
 /*
  * moderately complex query
  */
-EXPLAIN
+EXPLAIN (FORMAT XML)
 SELECT *
 FROM
     proband

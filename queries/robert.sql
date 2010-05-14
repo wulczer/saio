@@ -7,4 +7,4 @@ set saio_moves_before_frozen to 2;
 set join_collapse_limit to 100;
 set from_collapse_limit to 100;
 
-explain select * from foo_view order by name;
+explain (format xml) select * from foo_view;
