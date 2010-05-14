@@ -86,7 +86,7 @@
   \item nobody really cares about it
   \item is an adaptation of an algorithm to solve TSP, not necessarily best
     suited to join ordering
-  \item requires some cooperation from the planeer, which violates abstractions
+  \item requires some cooperation from the planner, which violates abstractions
   \end{itemize}
 \end{frame}
 
@@ -115,7 +115,7 @@
     \end{column}
     \begin{column}{5cm}
       Annealing (...) is a process that produces conditions by heating to above
-      the re-crystallization temperature and maintaining a suitable
+      the re-crystallisation temperature and maintaining a suitable
       temperature, and then cooling.\\
       \hfill\textit{-- Wikipedia}
     \end{column}
@@ -260,7 +260,7 @@ Implementing Simulated Annealing means solving the following problems:
 
   \begin{block}{Finding an initial state}
     Make base relations into one-node trees, keep merging them on joins with
-    restriction clases, forcefully merge the remaining ones using Cartesian
+    restriction clauses, forcefully merge the remaining ones using Cartesian
     joins. Results in a query tree that is as left-deep as possible.
     \\
     \hfill
@@ -411,7 +411,7 @@ Implementing Simulated Annealing means solving the following problems:
       costs
     \item small changes in the structure may result it gigantic changes in
       costs
-    \item might want to augment the cost assesment function (number of
+    \item might want to augment the cost assessment function (number of
       non-cross joins?)
     \end{itemize}
   \item the same join might be recalculated many times in each step
@@ -422,7 +422,7 @@ Implementing Simulated Annealing means solving the following problems:
   \frametitle{SAIO \texttt{recalc}}
 
   \begin{itemize}
-  \item essentialy the same as \texttt{move}
+  \item essentially the same as \texttt{move}
   \item but keeps all the relations \structure{built} between moves
   \item recalculate the joins from the chosen nodes up to the common ancestor
   \item if it succeeded, recalculate the nodes from the common ancestor up to
