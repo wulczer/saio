@@ -28,6 +28,28 @@
 
 \frame{\titlepage}
 
+\begin{frame}[fragile]
+  \frametitle{For those following at home}
+
+  \begin{block}{Getting the slides}
+    \begin{semiverbatim}
+      \$ wget http://wulczer.org/saio.pdf
+    \end{semiverbatim}
+  \end{block}
+
+  \begin{block}{Trying it out}
+    \begin{semiverbatim}
+      \$ git clone git://wulczer.org/saio.git
+      \$ cd saio && make
+      \$ psql
+      =# load '.../saio.so';
+    \end{semiverbatim}
+  \end{block}
+
+  Do not try to compile against an assert-enabled build. Do not be scared by
+  lots of ugly code.
+\end{frame}
+
 \begin{frame}
   \tableofcontents
 \end{frame}
@@ -103,7 +125,6 @@
     Annealing
   \item other people discussed the issue on \texttt{-hackers}
   \end{itemize}
-
 \end{frame}
 
 \begin{frame}
@@ -165,7 +186,6 @@
 
 \begin{frame}<1>[label=sa-problems]
   \frametitle<1>{The SA Algorithm cont.}
-  %% \frametitle<2->{SA Algorithm problems}
 
 Implementing Simulated Annealing means solving the following problems:
 
@@ -423,7 +443,7 @@ Implementing Simulated Annealing means solving the following problems:
 
   \begin{itemize}
   \item essentially the same as \texttt{move}
-  \item but keeps all the relations \structure{built} between moves
+  \item but \alert{keeps all the relations built} between moves
   \item recalculate the joins from the chosen nodes up to the common ancestor
   \item if it succeeded, recalculate the nodes from the common ancestor up to
     the root node
