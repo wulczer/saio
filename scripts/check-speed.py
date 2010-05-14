@@ -4,7 +4,7 @@ import psycopg2
 from xml.dom import minidom
 import time
 import numpy
-
+import sys
 
 def check(db, query, saio, saio_params):
 
@@ -39,7 +39,7 @@ def check(db, query, saio, saio_params):
     return cost, t
 
 
-LOOPS = 1
+LOOPS = 10
 
 TEMPLATE = r"""      %s & %s & %s & %f & %.5f \\ \hline"""
 
@@ -48,16 +48,18 @@ def transpose(*args):
     return numpy.array(map(float, a)), numpy.array(map(float, b))
 
 
-#db, query = "robert", "explain (format xml) select * from foo_view order by name"
-db, query = "complex", file("/home/wulczer/saio/queries/explain.sql").read()
+if len(sys.argv) > 1:
+   db, query = "robert", "explain (format xml) select * from foo_view order by name"
+else:
+   db, query = "complex", file("/home/wulczer/saio/queries/explain.sql").read()
 
 
 for saio_params in (
-    None,
     (4, 2.0, 0.6, 2),
+    (6, 2.0, 0.4, 2),
     (6, 2.0, 0.6, 2),
-    (8, 2.0, 0.7, 2),
-    (12, 2.0, 0.4, 2),
+    (8, 2.0, 0.4, 2),
+    None,
     ):
     if not saio_params:
         costs, times = transpose(
