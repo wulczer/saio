@@ -9,7 +9,7 @@ SAIO_PNGS = $(patsubst %.dot,%.png,$(SAIO_DOTS))
 
 EXTRA_CLEAN = \
 	saio.toc saio.aux saio.pdf saio.log \
-	saio.out saio.nav saio.snm saio.*.vrb \
+	saio.out saio.nav saio.snm saio*.vrb \
 	$(SAIO_PNGS)
 
 all : saio.pdf
