@@ -13,16 +13,12 @@
 
 #include <limits.h>
 
-#ifdef SAIO_DEBUG
-#include <printf.h>
-#include "saio_debug.h"
-#endif
-
 #include "utils/guc.h"
 #include "optimizer/paths.h"
 #include "optimizer/geqo.h"
 
 #include "saio.h"
+#include "saio_debug.h"
 
 PG_MODULE_MAGIC;
 

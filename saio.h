@@ -13,11 +13,8 @@
 #ifndef SAIO_H
 #define SAIO_H
 
-#include "postgres.h"
-
-#include "nodes/pg_list.h"
-#include "nodes/bitmapset.h"
-#include "optimizer/paths.h"
+char	path[256];
+#define SAIO_COST(rel) rel->cheapest_total_path->total_cost
 
 
 /* These get set by GUC */
@@ -96,10 +93,18 @@ enum
 	SAIO_MOVE_IMPOSSIBLE
 };
 
+void context_enter(PlannerInfo *root);
+void context_exit(PlannerInfo *root);
+
+void context_enter_mem(PlannerInfo *root);
+void context_exit_mem(PlannerInfo *root);
+
+bool acceptable(PlannerInfo *root, Cost new_cost);
+
 
 RelOptInfo *saio(PlannerInfo *root, int levels_needed, List *initial_rels);
 
 void _PG_init(void);
 void _PG_fini(void);
 
-#endif   /* SAIO_H */
+#endif	/* SAIO_H */

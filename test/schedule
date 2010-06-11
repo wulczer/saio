@@ -1,0 +1,4 @@
+# Use an existing installation, makes things much faster
+# test: load_data
+
+test: simple

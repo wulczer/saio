@@ -1,0 +1,64 @@
+load 'saio';
+set saio_algorithm TO recalc;
+explain (costs off) select * from
+	tenk1 t1,
+	tenk1 t2,
+	tenk1 t3
+where
+	t1.thousand = t3.thousand and
+	t3.hundred = t2.hundred;
+                   QUERY PLAN                   
+------------------------------------------------
+ Hash Join
+   Hash Cond: (t3.hundred = t2.hundred)
+   ->  Hash Join
+         Hash Cond: (t1.thousand = t3.thousand)
+         ->  Seq Scan on tenk1 t1
+         ->  Hash
+               ->  Seq Scan on tenk1 t3
+   ->  Hash
+         ->  Seq Scan on tenk1 t2
+(9 rows)
+
+set saio_algorithm TO move;
+explain (costs off) select * from
+	tenk1 t1,
+	tenk1 t2,
+	tenk1 t3
+where
+	t1.thousand = t3.thousand and
+	t3.hundred = t2.hundred;
+                   QUERY PLAN                   
+------------------------------------------------
+ Hash Join
+   Hash Cond: (t3.hundred = t2.hundred)
+   ->  Hash Join
+         Hash Cond: (t1.thousand = t3.thousand)
+         ->  Seq Scan on tenk1 t1
+         ->  Hash
+               ->  Seq Scan on tenk1 t3
+   ->  Hash
+         ->  Seq Scan on tenk1 t2
+(9 rows)
+
+set saio_algorithm TO pivot;
+explain (costs off) select * from
+	tenk1 t1,
+	tenk1 t2,
+	tenk1 t3
+where
+	t1.thousand = t3.thousand and
+	t3.hundred = t2.hundred;
+                   QUERY PLAN                   
+------------------------------------------------
+ Hash Join
+   Hash Cond: (t3.hundred = t2.hundred)
+   ->  Hash Join
+         Hash Cond: (t1.thousand = t3.thousand)
+         ->  Seq Scan on tenk1 t1
+         ->  Hash
+               ->  Seq Scan on tenk1 t3
+   ->  Hash
+         ->  Seq Scan on tenk1 t2
+(9 rows)
+

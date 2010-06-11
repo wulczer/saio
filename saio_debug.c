@@ -1,13 +1,34 @@
+/*------------------------------------------------------------------------
+ *
+ * saio.c
+ *	  solution to the query optimization problem
+ *	  by means of Simulated Annealing (SA)
+ *
+ * Copyright (c) 2009, PostgreSQL Global Development Group
+ *
+ * $PostgreSQL$
+ *
+ *-------------------------------------------------------------------------
+ */
+
 #include "postgres.h"
 
 #include <stdio.h>
 #include <printf.h>
 
 #include "optimizer/paths.h"
+#include "nodes/relation.h"
+#include "nodes/pg_list.h"
+
+#include "saio.h"
 #include "saio_debug.h"
 
+#ifndef SAIO_DEBUG
 #define printf(str, ...)
-
+#define dump_query_tree_list2(root, tree, tree1, tree2, l1, l2, fake, path)
+#define dump_query_tree_list(root, tree, tree1, tree2, l1, fake, path)
+#define dump_query_tree(root, tree, tree1, tree2, fake, path);
+#else
 
 void
 dump_debugging(SaioPrivateData *private)
@@ -342,3 +363,5 @@ validate_list(List *l)
 	}
 	printf("\n");
 }
+
+#endif	/* SAIO_DEBUG */

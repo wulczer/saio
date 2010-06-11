@@ -1,12 +1,9 @@
 #ifndef SAIO_DEBUG_H
 #define SAIO_DEBUG_H
 
-#include <printf.h>
-
-#include "saio.h"
-#include "optimizer/paths.h"
-
 #define SAIO_TREE_FORMAT "T"
+
+#include <printf.h>
 
 
 typedef struct SaioStep {
