@@ -292,10 +292,10 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 				default:
 					elog(ERROR, "invalid algorithm: %d", saio_move_algorithm);
 			}
-			if (move_result == 0)
+			if (move_result == SAIO_MOVE_OK)
 			{
 #ifdef SAIO_DEBUG
-				step->move_result = 0;
+				step->move_result = SAIO_MOVE_OK;
 #endif
 				private.loop_no++;
 				private.failed_moves = 0;

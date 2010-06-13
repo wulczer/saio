@@ -25,8 +25,6 @@
 #include "saio_debug.h"
 #include "saio_algorithms.h"
 
-#define OTHER_CHILD(node, child) (node)->left == (child) ? (node)->right : (node)->left
-
 
 static void
 execute_pivot(QueryTree *pivot_root)

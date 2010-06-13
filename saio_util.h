@@ -15,6 +15,8 @@
 
 #include "postgres.h"
 
+#define OTHER_CHILD(node, child) ( (node)->left == (child) ? (node)->right : (node)->left )
+
 #define saio_randint(root, upper, lower) \
 	( (int) floor( saio_rand(root)*(((upper)-(lower))+0.999999) ) + (lower) )
 
@@ -24,5 +26,8 @@ bool desirable_join(PlannerInfo *root,
 void initialize_random_state(PlannerInfo *root, double seed);
 
 double saio_rand(PlannerInfo *root);
+
+bool join_can_be_legal(PlannerInfo *root, Relids relids1, Relids relids2,
+					   Relids joinrelids);
 
 #endif

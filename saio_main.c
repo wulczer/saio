@@ -104,6 +104,7 @@ _PG_init(void)
 
 #ifdef SAIO_DEBUG
 	register_printf_specifier('T', print_tree_node, print_tree_node_arginfo);
+	register_printf_specifier('R', print_relids, print_relids_arginfo);
 #endif
 }
 

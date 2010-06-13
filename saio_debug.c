@@ -148,6 +148,55 @@ print_tree_node(FILE *stream, const struct printf_info *info,
 }
 
 
+int
+print_relids_arginfo(const struct printf_info *info, size_t n,
+					 int *argtypes, int *size)
+{
+	if (n > 0) {
+		argtypes[0] = PA_POINTER;
+		*size = sizeof(Relids);
+	}
+	return 1;
+}
+
+
+int
+print_relids(FILE *stream, const struct printf_info *info,
+			 const void *const *args)
+{
+	Relids	relids;
+	Relids	tmprelids;
+	int		bufsize;
+	char	*buffer;
+	int		len;
+	int		x;
+	bool	first = true;
+
+	relids = *((Relids *) (args[0]));
+
+	bufsize = bms_num_members(relids) * 2;
+	buffer = malloc(bufsize);
+	if (!buffer)
+		return -1;
+
+	len = 0;
+	tmprelids = bms_copy(relids);
+	while ((x = bms_first_member(tmprelids)) >= 0)
+	{
+		if (!first)
+			len += sprintf(buffer + len, " ");
+		len += sprintf(buffer + len, "%d", x);
+		first = false;
+	}
+	bms_free(tmprelids);
+
+	len = fprintf(stream, "%*s", (info->left ? -info->width : info->width),
+				  buffer);
+	free(buffer);
+	return len;
+}
+
+
 void
 fprintf_relids(FILE *f, Relids relids)
 {

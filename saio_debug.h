@@ -1,7 +1,8 @@
 #ifndef SAIO_DEBUG_H
 #define SAIO_DEBUG_H
 
-#define SAIO_TREE_FORMAT "T"
+#define SAIO_TREE_FORMAT   "T"
+#define SAIO_RELIDS_FORMAT "R"
 
 #include <printf.h>
 
@@ -43,5 +44,10 @@ int print_tree_node(FILE *stream, const struct printf_info *info,
 					const void *const *args);
 int print_tree_node_arginfo(const struct printf_info *info, size_t n,
 							int *argtypes, int *size);
+
+int print_relids(FILE *stream, const struct printf_info *info,
+				 const void *const *args);
+int print_relids_arginfo(const struct printf_info *info, size_t n,
+						 int *argtypes, int *size);
 
 #endif /* SAIO_DEBUG_H */

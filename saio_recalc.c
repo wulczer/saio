@@ -58,7 +58,7 @@ remove_from_planner(QueryTree *tree, bool fake, void *extra_data)
 	PlannerInfo *root = (PlannerInfo *) extra_data;
 	RelOptInfo	*rel = fake ? tree->tmp : tree->rel;
 
-	printf("Removing %T from planner (fake: %d)\n", tree, fake);
+	//printf("Removing %T from planner (fake: %d)\n", tree, fake);
 	if (rel == NULL)
 	{
 		printf("Nothing to remove\n");
@@ -173,8 +173,8 @@ recalculate(QueryTree *tree, bool fake, void *extra_data)
 
 	private = (SaioPrivateData *) root->join_search_private;
 
-	printf("Recalculating tree from %T and %T (fake: %d)\n",
-		   tree->left, tree->right, fake);
+	/* printf("Recalculating tree from %T and %T (fake: %d)\n", */
+	/* 	   tree->left, tree->right, fake); */
 
 	Assert(tree->left != NULL);
 	Assert(tree->right != NULL);
@@ -216,19 +216,104 @@ recalculate(QueryTree *tree, bool fake, void *extra_data)
 
 static void
 get_abc_paths(QueryTree *tree, QueryTree *tree1, QueryTree *tree2,
-			  List **a, List **b, List **c)
+			  List **ab, List **c)
 {
 	List *p1, *p2;
+	List *a, *b;
 
 	p1 = get_parents(tree1, true);
 	p2 = get_parents(tree2, true);
 
-	*a = list_difference_ptr(p1, p2);
-	*b = list_difference_ptr(p2, p1);
-	*c = list_difference_ptr(p1, *a);
+	a = list_difference_ptr(p1, p2);
+	b = list_difference_ptr(p2, p1);
+	*ab = list_concat(a, b);
+
+	*c = list_difference_ptr(p1, a);
 
 	list_free(p1);
 	list_free(p2);
+}
+
+
+typedef struct JoinPossiblePrivate
+{
+	PlannerInfo	*root;
+	QueryTree	*tree;
+	Relids		relids2;
+} JoinPossiblePrivate;
+
+
+static bool
+check_possible_join(QueryTree *tree, bool fake, void *extra_data)
+{
+	PlannerInfo		*root = (PlannerInfo *) extra_data;
+	RelOptInfo	*left, *right;
+	Relids		joinrelids;
+	bool		ok;
+
+	left = tree->left->tmp == NULL ? tree->left->rel : tree->left->tmp;
+	right = tree->right->tmp == NULL ? tree->right->rel : tree->right->tmp;
+
+	printf("Checking for join possibility, current relids are %R and %R\n",
+		   left->relids, right->relids);
+
+	Assert(!bms_overlap(left->relids, right->relids));
+
+	joinrelids = bms_union(left->relids, right->relids);
+	ok = join_can_be_legal(root, left->relids, right->relids, joinrelids);
+
+	printf("Join between %R and %R can be legal: %d\n",
+		   left->relids, right->relids, ok);
+
+	if (!ok)
+	{
+		bms_free(joinrelids);
+		return false;
+	}
+
+	tree->tmp = palloc(sizeof(QueryTree));
+	tree->tmp->relids = joinrelids;
+	return true;
+}
+
+static bool
+clean_possible_join(QueryTree *tree, bool fake, void *extra_data)
+{
+	if (tree->tmp == NULL)
+		return true;
+
+	bms_free(tree->tmp->relids);
+	pfree(tree->tmp);
+	tree->tmp = NULL;
+	return true;
+}
+
+
+static bool
+joins_are_possible(PlannerInfo *root, QueryTree *tree1, QueryTree *tree2,
+				   List *ab, List *c)
+{
+	bool				ok;
+
+
+	printf("processing list AB\n");
+	ok = list_walker(ab, check_possible_join, true, (void *) root);
+
+	if (!ok)
+	{
+		list_walker(ab, clean_possible_join, true, NULL);
+		return false;
+	}
+
+	printf("processing list C\n");
+	ok = list_walker(c, check_possible_join, true, (void *) root);
+
+	list_walker(ab, clean_possible_join, true, NULL);
+	list_walker(c, clean_possible_join, true, NULL);
+
+	printf("Joins are possible: %d\n", ok);
+
+	return ok;
 }
 
 
@@ -236,7 +321,7 @@ static int
 swap_and_recalc(PlannerInfo *root, QueryTree *tree,
 				QueryTree *tree1, QueryTree *tree2)
 {
-	List		*a, *b, *c, *ab;
+	List		*ab, *c;
 	bool		ok;
 	int			move_result;
 	SaioPrivateData	*private;
@@ -245,13 +330,25 @@ swap_and_recalc(PlannerInfo *root, QueryTree *tree,
 
 	swap_subtrees(tree1, tree2);
 
-	get_abc_paths(tree, tree1, tree2, &a, &b, &c);
-	ab = list_concat(a, b);
+	get_abc_paths(tree, tree1, tree2, &ab, &c);
 
 	printf("[%04d] Inside swap and recalc\n", private->loop_no);
 	snprintf(path, 256, "/tmp/saio-recalc-%04d-inside.dot", private->loop_no);
 	dump_query_tree_list2(root, tree, tree1, tree2, ab, c, true, path);
 
+	/* Check if the joins make sense */
+	// ok = joins_are_possible(root, tree1, tree2, ab, c);
+	ok = true;
+	if (!ok)
+	{
+		printf("[%04d] Joins are impossible\n", private->loop_no);
+		swap_subtrees(tree1, tree2);
+		snprintf(path, 256, "/tmp/saio-recalc-%04d-failed.dot", private->loop_no);
+		dump_query_tree_list2(root, tree, tree1, tree2, ab, c, true, path);
+		list_free(ab);
+		list_free(c);
+		return SAIO_MOVE_FAILED_FAST;
+	}
 
 	/* Rebuild the A and B paths */
 	ok = list_walker(ab, recalculate, true, (void *) root);

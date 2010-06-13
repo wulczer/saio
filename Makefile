@@ -4,7 +4,7 @@ OBJS = \
 	saio_move.o saio_pivot.o saio_recalc.o saio.o saio_debug.o
 
 PG_CONFIG = /home/wulczer/tmp/postgresql/bin/pg_config
-PG_CPPFLAGS = -Werror -Wno-format
+PG_CPPFLAGS = -Werror -Wno-format -Wno-unused-function
 
 ifneq (,$(findstring --enable-cassert,$(shell $(PG_CONFIG) --configure)))
 	PG_CPPFLAGS += -DSAIO_DEBUG
