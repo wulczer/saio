@@ -25,10 +25,7 @@
 
 #ifndef SAIO_DEBUG
 #define printf(str, ...)
-#define dump_query_tree_list2(root, tree, tree1, tree2, l1, l2, fake, path)
-#define dump_query_tree_list(root, tree, tree1, tree2, l1, fake, path)
-#define dump_query_tree(root, tree, tree1, tree2, fake, path);
-#else
+#endif
 
 void
 dump_debugging(SaioPrivateData *private)
@@ -343,6 +340,9 @@ dump_query_tree_list2(PlannerInfo *root, QueryTree *tree,
 					  List *lselected1, List *lselected2,
 					  bool costs, char *path)
 {
+#ifndef SAIO_DEBUG
+	return;
+#else
 	FILE	*f;
 
 	f = fopen(path, "w");
@@ -351,6 +351,7 @@ dump_query_tree_list2(PlannerInfo *root, QueryTree *tree,
 						lselected1, lselected2, costs, f);
 	fprintf(f, "}\n");
 	fclose(f);
+#endif
 }
 
 
@@ -412,5 +413,3 @@ validate_list(List *l)
 	}
 	printf("\n");
 }
-
-#endif	/* SAIO_DEBUG */
