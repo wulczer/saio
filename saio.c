@@ -24,8 +24,10 @@
 #include "saio_util.h"
 #include "saio_trees.h"
 #include "saio_debug.h"
-#include "saio_algorithms.h"
 
+extern SaioAlgorithm saio_move;
+extern SaioAlgorithm saio_pivot;
+extern SaioAlgorithm saio_recalc;
 
 /*
  * Save the current state of the variables that get modified during
@@ -161,26 +163,6 @@ frozen(PlannerInfo *root)
 }
 
 
-static void
-init_tree_contexts(QueryTree *tree)
-{
-	Assert(tree != NULL);
-
-	tree->ctx = AllocSetContextCreate(CurrentMemoryContext, "SAIO node",
-									  ALLOCSET_DEFAULT_MINSIZE,
-									  ALLOCSET_DEFAULT_INITSIZE,
-									  ALLOCSET_DEFAULT_MAXSIZE);
-	tree->tmpctx = AllocSetContextCreate(CurrentMemoryContext, "SAIO tmp node",
-										 ALLOCSET_DEFAULT_MINSIZE,
-										 ALLOCSET_DEFAULT_INITSIZE,
-										 ALLOCSET_DEFAULT_MAXSIZE);
-	if (tree->right != NULL)
-		init_tree_contexts(tree->right);
-	if (tree->left != NULL)
-		init_tree_contexts(tree->left);
-}
-
-
 RelOptInfo *
 saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 {
@@ -188,6 +170,8 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	List			*all_trees;
 	RelOptInfo		*res;
 	SaioPrivateData	private;
+	SaioAlgorithm	algorithm;
+	bool			ok;
 
 	/* Initialize private data */
 	root->join_search_private = (void *) &private;
@@ -218,8 +202,7 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	 * root->join_rel_hash and to be able to free the memory taken by
 	 * constructing paths after determining an initial join order.
 	 */
-	if (saio_move_algorithm != SAIO_ALGORITHM_RECALC)
-		context_enter(root);
+	context_enter(root);
 
 	tree = make_query_tree(root, initial_rels);
 	/* Set the initial tree cost */
@@ -229,14 +212,11 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	 * Copy the tree structure to the correct memory context. The rest of the
 	 * memory allocated in make_query_tree() will get freed in context_exit().
 	 */
-	if (saio_move_algorithm != SAIO_ALGORITHM_RECALC)
-	{
-		MemoryContextSwitchTo(private.old_context);
-		tree = copy_tree_structure(tree);
-		MemoryContextSwitchTo(private.sketch_context);
+	MemoryContextSwitchTo(private.old_context);
+	tree = copy_tree_structure(tree);
+	MemoryContextSwitchTo(private.sketch_context);
 
-		context_exit(root);
-	}
+	context_exit(root);
 
 	/* Set the number of loops before considering equilibrium */
 	private.equilibrium_loops = levels_needed * saio_equilibrium_factor;
@@ -249,15 +229,30 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	/* Initialize the minimal state */
 	private.min_tree = NULL;
 
-
 	/* init debugging */
 	private.steps = NIL;
 	private.joinrels_built = 0;
 	private.loop_no = 0;
 
-	/* if the algorithm is RECALC, init the contexts */
-	if (saio_move_algorithm == SAIO_ALGORITHM_RECALC)
-		init_tree_contexts(tree);
+	switch (saio_move_algorithm)
+	{
+		case SAIO_ALGORITHM_MOVE:
+			algorithm = saio_move;
+			break;
+		case SAIO_ALGORITHM_PIVOT:
+			algorithm = saio_pivot;
+			break;
+		case SAIO_ALGORITHM_RECALC:
+			algorithm = saio_recalc;
+			break;
+		default:
+			elog(ERROR, "invalid algorithm: %d", saio_move_algorithm);
+	}
+
+
+	/* initialize the algorithm */
+	if (algorithm.initialize != NULL)
+		algorithm.initialize(root, tree);
 
 	/*
 	 * Get the list of all trees to then pick randomly from them when doing SA
@@ -268,7 +263,7 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	do {
 
 		do {
-			int			move_result = 0;
+			saio_result	move_result = SAIO_MOVE_OK;
 #ifdef SAIO_DEBUG
 			/* save values for debugging */
 			SaioStep	*step = palloc(sizeof(SaioStep));
@@ -278,20 +273,8 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 			step->joinrels_built = private.joinrels_built;
 			private.joinrels_built = 0;
 #endif
-			switch (saio_move_algorithm)
-			{
-				case SAIO_ALGORITHM_MOVE:
-					move_result = saio_move(root, tree, all_trees);
-					break;
-				case SAIO_ALGORITHM_PIVOT:
-					move_result = saio_pivot_move(root, tree, all_trees);
-					break;
-				case SAIO_ALGORITHM_RECALC:
-					move_result = saio_recalc_move(root, tree, all_trees);
-					break;
-				default:
-					elog(ERROR, "invalid algorithm: %d", saio_move_algorithm);
-			}
+			move_result = algorithm.step(root, tree, all_trees);
+
 			if (move_result == SAIO_MOVE_OK)
 			{
 #ifdef SAIO_DEBUG
@@ -338,8 +321,13 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 		printf("The cheapest tree is %10.4f\n", private.min_cost);
 	}
 
+	/* Finalize the algorithm */
+	if (algorithm.finalize != NULL)
+		algorithm.finalize(root, tree);
+
 	/* Rebuild the final rel in the correct memory context */
-	recalculate_tree(root, tree);
+	ok = recalculate_tree(root, tree);
+	Assert(ok);
 	snprintf(path, 256, "/tmp/saio-final.dot");
 	dump_query_tree(root, tree, NULL, NULL, true, path);
 	res = tree->rel;

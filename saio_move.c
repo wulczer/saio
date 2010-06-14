@@ -23,10 +23,9 @@
 #include "saio_util.h"
 #include "saio_trees.h"
 #include "saio_debug.h"
-#include "saio_algorithms.h"
 
-int
-saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
+static saio_result
+saio_move_step(PlannerInfo *root, QueryTree *tree, List *all_trees)
 {
 	List		*choices, *tmp;
 	QueryTree	*tree1, *tree2;
@@ -97,3 +96,9 @@ saio_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 
 	return SAIO_MOVE_OK;
 }
+
+SaioAlgorithm saio_move = {
+	.step = saio_move_step,
+	.initialize = NULL,
+	.finalize = NULL
+};

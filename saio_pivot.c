@@ -23,8 +23,6 @@
 #include "saio_util.h"
 #include "saio_trees.h"
 #include "saio_debug.h"
-#include "saio_algorithms.h"
-
 
 static void
 execute_pivot(QueryTree *pivot_root)
@@ -39,8 +37,8 @@ execute_pivot(QueryTree *pivot_root)
 }
 
 
-int
-saio_pivot_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
+static saio_result
+saio_pivot_step(PlannerInfo *root, QueryTree *tree, List *all_trees)
 {
 	List		*choices;
 	QueryTree	*pivot_root;
@@ -146,3 +144,9 @@ pivot_is_possible(PlannerInfo *root, QueryTree *pivot_root)
 	return true;
 }
 #endif
+
+SaioAlgorithm saio_pivot = {
+	.step = saio_pivot_step,
+	.initialize = NULL,
+	.finalize = NULL
+};

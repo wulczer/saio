@@ -85,14 +85,21 @@ typedef enum saio_algorithm
 } saio_algorithm;
 
 
-enum
+typedef enum saio_result
 {
 	SAIO_MOVE_OK = 0,
 	SAIO_MOVE_FAILED_FAST,
 	SAIO_MOVE_FAILED,
 	SAIO_MOVE_DISCARDED,
 	SAIO_MOVE_IMPOSSIBLE
-};
+} saio_result;
+
+typedef struct SaioAlgorithm {
+	saio_result (*step) (PlannerInfo *root,
+							  QueryTree *tree, List *all_trees);
+	void (*initialize) (PlannerInfo *root, QueryTree *tree);
+	void (*finalize) (PlannerInfo *root, QueryTree *tree);
+} SaioAlgorithm;
 
 void context_enter(PlannerInfo *root);
 void context_exit(PlannerInfo *root);

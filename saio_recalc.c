@@ -24,8 +24,6 @@
 #include "saio_util.h"
 #include "saio_trees.h"
 #include "saio_debug.h"
-#include "saio_algorithms.h"
-
 
 typedef struct JoinHashEntry
 {
@@ -427,8 +425,8 @@ swap_and_recalc(PlannerInfo *root, QueryTree *tree,
 }
 
 
-int
-saio_recalc_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
+static saio_result
+saio_recalc_step(PlannerInfo *root, QueryTree *tree, List *all_trees)
 {
 	List			*choices, *tmp;
 	QueryTree		*tree1, *tree2;
@@ -503,3 +501,61 @@ saio_recalc_move(PlannerInfo *root, QueryTree *tree, List *all_trees)
 
 	return SAIO_MOVE_OK;
 }
+
+
+static void
+init_tree_contexts(QueryTree *tree)
+{
+	Assert(tree != NULL);
+
+	tree->ctx = AllocSetContextCreate(CurrentMemoryContext, "SAIO node",
+									  ALLOCSET_DEFAULT_MINSIZE,
+									  ALLOCSET_DEFAULT_INITSIZE,
+									  ALLOCSET_DEFAULT_MAXSIZE);
+	tree->tmpctx = AllocSetContextCreate(CurrentMemoryContext, "SAIO tmp node",
+										 ALLOCSET_DEFAULT_MINSIZE,
+										 ALLOCSET_DEFAULT_INITSIZE,
+										 ALLOCSET_DEFAULT_MAXSIZE);
+
+	tree->tmp = NULL;
+	if (tree->right != NULL)
+		init_tree_contexts(tree->right);
+	if (tree->left != NULL)
+		init_tree_contexts(tree->left);
+}
+
+
+static void
+saio_recalc_initialize(PlannerInfo *root, QueryTree *tree)
+{
+	SaioPrivateData	*private = (SaioPrivateData *) root->join_search_private;
+	bool	ok;
+
+	private->savelength = list_length(root->join_rel_list);
+	private->savehash = root->join_rel_hash;
+	/* if a hash has already been built, we need to get rid of it */
+	root->join_rel_hash = NULL;
+
+	init_tree_contexts(tree);
+
+
+	ok = recalculate_tree(root, tree);
+	Assert(ok);
+}
+
+static void
+saio_recalc_finalize(PlannerInfo *root, QueryTree *tree)
+{
+	SaioPrivateData	*private = (SaioPrivateData *) root->join_search_private;
+
+	/* restore join_rel_list and join_rel_hash */
+	root->join_rel_list = list_truncate(root->join_rel_list,
+										private->savelength);
+	root->join_rel_hash = private->savehash;
+}
+
+SaioAlgorithm saio_recalc = {
+	.step = saio_recalc_step,
+	.initialize = saio_recalc_initialize,
+	.finalize = saio_recalc_finalize
+};
