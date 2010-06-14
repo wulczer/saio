@@ -171,7 +171,7 @@ print_relids(FILE *stream, const struct printf_info *info,
 
 	relids = *((Relids *) (args[0]));
 
-	bufsize = bms_num_members(relids) * 2;
+	bufsize = bms_num_members(relids) * 6;
 	buffer = malloc(bufsize);
 	if (!buffer)
 		return -1;
