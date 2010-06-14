@@ -1,6 +1,7 @@
 load 'saio';
 
-set saio_algorithm TO recalc;
+set saio_seed to 0.5;
+set saio_algorithm to recalc;
 
 explain (costs off) select * from
 	tenk1 t1,

@@ -2,3 +2,5 @@
 # test: load_data
 
 test: simple
+test: robert
+test: andres
