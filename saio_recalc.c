@@ -335,8 +335,8 @@ swap_and_recalc(PlannerInfo *root, QueryTree *tree,
 	dump_query_tree_list2(root, tree, tree1, tree2, ab, c, true, path);
 
 	/* Check if the joins make sense */
-	// ok = joins_are_possible(root, tree1, tree2, ab, c);
-	ok = true;
+	ok = joins_are_possible(root, tree1, tree2, ab, c);
+	/* ok = true; */
 	if (!ok)
 	{
 		printf("[%04d] Joins are impossible\n", private->loop_no);
