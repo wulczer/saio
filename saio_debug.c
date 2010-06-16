@@ -23,10 +23,6 @@
 #include "saio.h"
 #include "saio_debug.h"
 
-#ifndef SAIO_DEBUG
-#define printf(str, ...)
-#endif
-
 void
 dump_debugging(SaioPrivateData *private)
 {

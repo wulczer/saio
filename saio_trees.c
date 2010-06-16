@@ -21,6 +21,7 @@
 #include "saio.h"
 #include "saio_util.h"
 #include "saio_trees.h"
+#include "saio_debug.h"
 
 /*
  * Merge a QueryTree into a list of QueryTrees by creating another tree that
