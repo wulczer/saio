@@ -173,6 +173,9 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	SaioAlgorithm	algorithm;
 	bool			ok;
 
+	/* By default use the "move" algorithm */
+	algorithm = saio_move;
+
 	/* Initialize private data */
 	root->join_search_private = (void *) &private;
 
