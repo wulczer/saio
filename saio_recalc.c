@@ -82,7 +82,6 @@ reset_memory(QueryTree *tree, bool fake, void *extra_data)
 {
 	MemoryContext	ctx = fake ? tree->tmpctx : tree->ctx;
 
-	printf("Resetting context %p (fake: %d)\n", ctx, fake);
 	MemoryContextReset(ctx);
 	return true;
 }
@@ -93,7 +92,6 @@ nullify(QueryTree *tree, bool fake, void *extra_data)
 {
 	RelOptInfo		**rel = fake ? &tree->tmp : &tree->rel;
 
-	printf("Nullifying relation %p (fake: %d)\n", *rel, fake);
 	*rel = NULL;
 	return true;
 }
@@ -152,8 +150,6 @@ switch_contexts(QueryTree *tree, bool fake, void *extra_data)
 	tree->tmp = tree->rel;
 	tree->rel = tmprel;
 
-	printf("Switched contexts, rel is %p, tmp is %p\n", tree->rel, tree->tmp);
-
 	return true;
 }
 
@@ -171,9 +167,6 @@ recalculate(QueryTree *tree, bool fake, void *extra_data)
 
 	private = (SaioPrivateData *) root->join_search_private;
 
-	/* printf("Recalculating tree from %T and %T (fake: %d)\n", */
-	/* 	   tree->left, tree->right, fake); */
-
 	Assert(tree->left != NULL);
 	Assert(tree->right != NULL);
 
@@ -186,6 +179,9 @@ recalculate(QueryTree *tree, bool fake, void *extra_data)
 		return false;
 	if (right == NULL)
 		return false;
+
+	printf("saio_recalc: creating joinrel from %R and %R\n",
+		   left->relids, right->relids);
 
 	ctx = MemoryContextSwitchTo(fake ? tree->tmpctx : tree->ctx);
 	n = list_length(root->join_rel_list);
@@ -294,7 +290,6 @@ joins_are_possible(PlannerInfo *root, QueryTree *tree1, QueryTree *tree2,
 	bool				ok;
 
 
-	printf("processing list AB\n");
 	ok = list_walker(ab, check_possible_join, true, (void *) root);
 
 	if (!ok)
@@ -303,7 +298,6 @@ joins_are_possible(PlannerInfo *root, QueryTree *tree1, QueryTree *tree2,
 		return false;
 	}
 
-	printf("processing list C\n");
 	ok = list_walker(c, check_possible_join, true, (void *) root);
 
 	list_walker(ab, clean_possible_join, true, NULL);

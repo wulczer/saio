@@ -390,6 +390,9 @@ recalculate_tree_cutoff_ctx(PlannerInfo *root, QueryTree *tree,
 	if (!ok)
 		return false;
 
+	printf("saio_trees: creating joinrel from %R and %R (own ctx: %d)\n",
+		   tree->left->rel->relids, tree->right->rel->relids, own_ctx);
+
 	/* try to join the children's relations */
 	if (own_ctx)
 	{
