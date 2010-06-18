@@ -267,7 +267,7 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 
 		do {
 			saio_result	move_result = SAIO_MOVE_OK;
-#ifdef SAIO_DEBUG
+#ifdef SAIO_STATS
 			/* save values for debugging */
 			SaioStep	*step = palloc(sizeof(SaioStep));
 #endif
@@ -275,7 +275,7 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 
 			if (move_result == SAIO_MOVE_OK)
 			{
-#ifdef SAIO_DEBUG
+#ifdef SAIO_STATS
 				step->move_result = SAIO_MOVE_OK;
 #endif
 				private.loop_no++;
@@ -283,22 +283,22 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 			}
 			else
 			{
-#ifdef SAIO_DEBUG
+#ifdef SAIO_STATS
 				step->move_result = move_result;
 #endif
 				private.loop_no++;
 				private.failed_moves++;
 			}
-#ifdef SAIO_DEBUG
+#ifdef SAIO_STATS
 			step->cost = private.previous_cost;
 			step->temperature = private.temperature;
 			step->joinrels_built = private.joinrels_built;
 			private.steps = lappend(private.steps, step);
 #endif
 			private.joinrels_built = 0;
-			printf("[%04d] at the end of the loop min tree is %p with cost %10.4f\n",
-				   private.loop_no, private.min_tree,
-				   private.min_tree == NULL ? 0 : private.min_cost);
+			elog(DEBUG1, "[%04d] at the end of the loop min tree is %p with cost %10.4f\n",
+				 private.loop_no, private.min_tree,
+				 private.min_tree == NULL ? 0 : private.min_cost);
 
 		} while (!equilibrium(root));
 
@@ -306,21 +306,21 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 
 	} while (!frozen(root));
 
-#ifdef SAIO_DEBUG
+#ifdef SAIO_STATS
 	/* dump debugging values, free memory */
 	dump_debugging(&private);
 	list_free_deep(private.steps);
 #endif
 
-	printf("[%04d] at the end of the algorithm min tree is %p with cost %10.4f\n",
-		   private.loop_no, private.min_tree,
-		   private.min_tree == NULL ? 0 : private.min_cost);
+	elog(DEBUG1, "[%04d] at the end of the algorithm min tree is %p with cost %10.4f\n",
+		 private.loop_no, private.min_tree,
+		 private.min_tree == NULL ? 0 : private.min_cost);
 
 	/* if there is a global minimum, pick it */
 	if (private.min_tree != NULL)
 	{
 		tree = private.min_tree;
-		printf("The cheapest tree is %10.4f\n", private.min_cost);
+		elog(DEBUG1, "The cheapest tree is %10.4f\n", private.min_cost);
 	}
 
 	/* Finalize the algorithm */

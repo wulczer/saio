@@ -6,9 +6,9 @@
 
 #include <printf.h>
 
-#ifndef SAIO_DEBUG
-#define printf(str, ...)
-#endif
+/* #ifndef SAIO_DEBUG */
+/* #define printf(str, ...) */
+/* #endif */
 
 typedef struct SaioStep {
 	double			temperature;

@@ -56,10 +56,8 @@ remove_from_planner(QueryTree *tree, bool fake, void *extra_data)
 	PlannerInfo *root = (PlannerInfo *) extra_data;
 	RelOptInfo	*rel = fake ? tree->tmp : tree->rel;
 
-	//printf("Removing %T from planner (fake: %d)\n", tree, fake);
 	if (rel == NULL)
 	{
-		printf("Nothing to remove\n");
 		return true;
 	}
 
@@ -132,7 +130,7 @@ rebuild_join_rel_hash(PlannerInfo *root)
 	}
 
 	root->join_rel_hash = hashtab;
-	printf("Created a joinrel hash %p\n", hashtab);
+	elog(DEBUG1, "Created a joinrel hash %p\n", hashtab);
 }
 
 
@@ -180,8 +178,8 @@ recalculate(QueryTree *tree, bool fake, void *extra_data)
 	if (right == NULL)
 		return false;
 
-	printf("saio_recalc: creating joinrel from %R and %R\n",
-		   left->relids, right->relids);
+	elog(DEBUG1, "saio_recalc: creating joinrel from %R and %R\n",
+		 left->relids, right->relids);
 
 	ctx = MemoryContextSwitchTo(fake ? tree->tmpctx : tree->ctx);
 	n = list_length(root->join_rel_list);
@@ -190,7 +188,7 @@ recalculate(QueryTree *tree, bool fake, void *extra_data)
 	rel = make_join_rel(root, left, right);
 	MemoryContextSwitchTo(ctx);
 	if (rel == NULL) {
-		printf("Recalculation failed\n");
+		elog(DEBUG1, "Recalculation failed\n");
 		return false;
 	}
 	private->joinrels_built++;
@@ -248,7 +246,7 @@ check_possible_join(QueryTree *tree, bool fake, void *extra_data)
 	left = tree->left->tmp == NULL ? tree->left->rel : tree->left->tmp;
 	right = tree->right->tmp == NULL ? tree->right->rel : tree->right->tmp;
 
-	printf("Checking for join possibility, current relids are %R and %R\n",
+	elog(DEBUG1, "Checking for join possibility, current relids are %R and %R\n",
 		   left->relids, right->relids);
 
 	Assert(!bms_overlap(left->relids, right->relids));
@@ -256,8 +254,8 @@ check_possible_join(QueryTree *tree, bool fake, void *extra_data)
 	joinrelids = bms_union(left->relids, right->relids);
 	ok = join_can_be_legal(root, left->relids, right->relids, joinrelids);
 
-	printf("Join between %R and %R can be legal: %d\n",
-		   left->relids, right->relids, ok);
+	elog(DEBUG1, "Join between %R and %R can be legal: %d\n",
+		 left->relids, right->relids, ok);
 
 	if (!ok)
 	{
@@ -303,7 +301,7 @@ joins_are_possible(PlannerInfo *root, QueryTree *tree1, QueryTree *tree2,
 	list_walker(ab, clean_possible_join, true, NULL);
 	list_walker(c, clean_possible_join, true, NULL);
 
-	printf("Joins are possible: %d\n", ok);
+	elog(DEBUG1, "Joins are possible: %d\n", ok);
 
 	return ok;
 }
@@ -324,7 +322,7 @@ swap_and_recalc(PlannerInfo *root, QueryTree *tree,
 
 	get_abc_paths(tree, tree1, tree2, &ab, &c);
 
-	printf("[%04d] Inside swap and recalc\n", private->loop_no);
+	elog(DEBUG1, "[%04d] Inside swap and recalc\n", private->loop_no);
 	snprintf(path, 256, "/tmp/saio-recalc-%04d-inside.dot", private->loop_no);
 	dump_query_tree_list2(root, tree, tree1, tree2, ab, c, true, path);
 
@@ -333,7 +331,7 @@ swap_and_recalc(PlannerInfo *root, QueryTree *tree,
 	/* ok = true; */
 	if (!ok)
 	{
-		printf("[%04d] Joins are impossible\n", private->loop_no);
+		elog(DEBUG1, "[%04d] Joins are impossible\n", private->loop_no);
 		swap_subtrees(tree1, tree2);
 		snprintf(path, 256, "/tmp/saio-recalc-%04d-failed.dot", private->loop_no);
 		dump_query_tree_list2(root, tree, tree1, tree2, ab, c, true, path);
@@ -348,7 +346,7 @@ swap_and_recalc(PlannerInfo *root, QueryTree *tree,
 	/* If that failed, reset and remove the A and B paths and return */
 	if (!ok)
 	{
-		printf("[%04d] Failed to rebuild AB paths\n", private->loop_no);
+		elog(DEBUG1, "[%04d] Failed to rebuild AB paths\n", private->loop_no);
 		list_walker(ab, remove_from_planner, true, (void *) root);
 		list_walker(ab, reset_memory, true, (void *) root);
 		list_walker(ab, nullify, true, (void *) root);
@@ -360,7 +358,7 @@ swap_and_recalc(PlannerInfo *root, QueryTree *tree,
 		return SAIO_MOVE_FAILED;
 	}
 
-	printf("[%04d] Managed to rebuild AB paths\n", private->loop_no);
+	elog(DEBUG1, "[%04d] Managed to rebuild AB paths\n", private->loop_no);
 	move_result = SAIO_MOVE_FAILED;
 	/* Managed to rebuild A and B paths, now remove the C path and rebuild it */
 	list_walker(c, remove_from_planner, false, (void *) root);
@@ -372,7 +370,7 @@ swap_and_recalc(PlannerInfo *root, QueryTree *tree,
 	if (ok)
 	{
 		move_result = SAIO_MOVE_DISCARDED;
-		printf("[%04d] Managed to rebuild C path\n", private->loop_no);
+		elog(DEBUG1, "[%04d] Managed to rebuild C path\n", private->loop_no);
 		ok = acceptable(root, SAIO_COST(tree->tmp));
 	}
 
@@ -380,10 +378,10 @@ swap_and_recalc(PlannerInfo *root, QueryTree *tree,
 	 * path and return */
 	if (!ok)
 	{
-		printf("[%04d] Failed to rebuild the tree: "
-			   "new cost %10.4f, old cost %10.4f, reason %d\n",
-			   private->loop_no, SAIO_COST(tree->tmp), private->previous_cost,
-			   move_result);
+		elog(DEBUG1, "[%04d] Failed to rebuild the tree: "
+			 "new cost %10.4f, old cost %10.4f, reason %d\n",
+			 private->loop_no, SAIO_COST(tree->tmp), private->previous_cost,
+			 move_result);
 		list_walker(ab, remove_from_planner, true, (void *) root);
 		list_walker(ab, reset_memory, true, (void *) root);
 		list_walker(ab, nullify, true, (void *) root);
@@ -409,7 +407,7 @@ swap_and_recalc(PlannerInfo *root, QueryTree *tree,
 	list_walker(ab, nullify, true, (void *) root);
 	list_walker(c, nullify, true, (void *) root);
 
-	printf("[%04d] Success\n", private->loop_no);
+	elog(DEBUG1, "[%04d] Success\n", private->loop_no);
 	snprintf(path, 256, "/tmp/saio-recalc-%04d-success.dot", private->loop_no);
 	dump_query_tree_list2(root, tree, tree1, tree2, ab, c, true, path);
 
@@ -430,12 +428,12 @@ saio_recalc_step(PlannerInfo *root, QueryTree *tree, List *all_trees)
 
 	if (MemoryContextIsEmpty(tree->ctx)) {
 		/* rebuild the tree putting each node in its own context */
-		printf("Rebuilding the tree in separate contexts\n");
+		elog(DEBUG1, "Rebuilding the tree in separate contexts\n");
 		ok = recalculate_tree_cutoff_ctx(root, tree, NULL, true);
 		Assert(ok);
 		if (root->join_rel_hash != NULL)
 		{
-			printf("Had to rebuilding the joinrel hash as well\n");
+			elog(DEBUG1, "Had to rebuilding the joinrel hash as well\n");
 			rebuild_join_rel_hash(root);
 		}
 	}
@@ -445,7 +443,7 @@ saio_recalc_step(PlannerInfo *root, QueryTree *tree, List *all_trees)
 	/* if less than four trees to choose from, return immediately */
 	if (list_length(all_trees) < 4)
 	{
-		printf("Less than four tress to choose from, exiting\n");
+		elog(DEBUG1, "Less than four tress to choose from, exiting\n");
 		return SAIO_MOVE_IMPOSSIBLE;
 	}
 
@@ -464,13 +462,13 @@ saio_recalc_step(PlannerInfo *root, QueryTree *tree, List *all_trees)
 	if (choices == NIL)
 	{
 		context_exit_mem(root);
-		printf("Could not find suitable choice, exiting\n");
+		elog(DEBUG1, "Could not find suitable choice, exiting\n");
 		return SAIO_MOVE_IMPOSSIBLE;
 	}
 
 	tree2 = list_nth(choices, saio_randint(root, 0, list_length(choices) - 1));
 
-	printf("[%04d] Starting recalc move\n", private->loop_no);
+	elog(DEBUG1, "[%04d] Starting recalc move\n", private->loop_no);
 	snprintf(path, 256, "/tmp/saio-recalc-%04d-try.dot", private->loop_no);
 	dump_query_tree_list(root, tree, tree1, tree2, choices, true, path);
 
@@ -480,7 +478,7 @@ saio_recalc_step(PlannerInfo *root, QueryTree *tree, List *all_trees)
 
 	if (move_result != SAIO_MOVE_OK)
 	{
-		printf("[%04d] Swap and recalc failed with %d\n",
+		elog(DEBUG1, "[%04d] Swap and recalc failed with %d\n",
 			   private->loop_no, move_result);
 		snprintf(path, 256, "/tmp/saio-recalc-%04d-failed.dot", private->loop_no);
 		dump_query_tree_list(root, tree, tree1, tree2, NIL, true, path);

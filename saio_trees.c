@@ -390,8 +390,8 @@ recalculate_tree_cutoff_ctx(PlannerInfo *root, QueryTree *tree,
 	if (!ok)
 		return false;
 
-	printf("saio_trees: creating joinrel from %R and %R (own ctx: %d)\n",
-		   tree->left->rel->relids, tree->right->rel->relids, own_ctx);
+	elog(DEBUG1, "saio_trees: creating joinrel from %R and %R (own ctx: %d)\n",
+		 tree->left->rel->relids, tree->right->rel->relids, own_ctx);
 
 	/* try to join the children's relations */
 	if (own_ctx)
@@ -463,7 +463,7 @@ keep_minimum_state(PlannerInfo *root, QueryTree *tree, Cost new_cost)
 		if ((private->min_tree != NULL) && (private->min_cost >= new_cost))
 		{
 			/* we broke the global minimum, forget it */
-			printf("[%04d] global minimum broken\n", private->loop_no);
+			elog(DEBUG1, "[%04d] global minimum broken\n", private->loop_no);
 			MemoryContextReset(private->min_context);
 			private->min_tree = NULL;
 		}
@@ -480,7 +480,7 @@ keep_minimum_state(PlannerInfo *root, QueryTree *tree, Cost new_cost)
 			if (private->min_tree != NULL)
 				MemoryContextReset(private->min_context);
 
-			printf("[%04d] new global minimum\n", private->loop_no);
+			elog(DEBUG1, "[%04d] new global minimum\n", private->loop_no);
 			/* copy the current state into the global minimum context */
 			old_context = MemoryContextSwitchTo(private->min_context);
 			private->min_tree = copy_tree_structure(tree);
