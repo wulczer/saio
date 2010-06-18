@@ -270,11 +270,6 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 #ifdef SAIO_DEBUG
 			/* save values for debugging */
 			SaioStep	*step = palloc(sizeof(SaioStep));
-
-			step->cost = private.previous_cost;
-			step->temperature = private.temperature;
-			step->joinrels_built = private.joinrels_built;
-			private.joinrels_built = 0;
 #endif
 			move_result = algorithm.step(root, tree, all_trees);
 
@@ -295,8 +290,12 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 				private.failed_moves++;
 			}
 #ifdef SAIO_DEBUG
+			step->cost = private.previous_cost;
+			step->temperature = private.temperature;
+			step->joinrels_built = private.joinrels_built;
 			private.steps = lappend(private.steps, step);
 #endif
+			private.joinrels_built = 0;
 			printf("[%04d] at the end of the loop min tree is %p with cost %10.4f\n",
 				   private.loop_no, private.min_tree,
 				   private.min_tree == NULL ? 0 : private.min_cost);
