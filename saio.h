@@ -14,7 +14,7 @@
 #define SAIO_H
 
 char	path[256];
-#define SAIO_COST(rel) rel->cheapest_total_path->total_cost
+#define SAIO_COST(rel) (rel)->cheapest_total_path->total_cost
 
 
 /* These get set by GUC */
