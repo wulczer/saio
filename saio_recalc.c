@@ -51,6 +51,16 @@ list_walker(List *l, bool (*walker) (QueryTree *, bool, void *),
 
 
 static bool
+keep_costs(QueryTree *tree, bool fake, void *extra_data)
+{
+	RelOptInfo		*rel = fake ? tree->tmp : tree->rel;
+
+	tree->previous_cost = SAIO_COST(rel);
+	return true;
+}
+
+
+static bool
 remove_from_planner(QueryTree *tree, bool fake, void *extra_data)
 {
 	PlannerInfo *root = (PlannerInfo *) extra_data;
@@ -202,6 +212,15 @@ recalculate(QueryTree *tree, bool fake, void *extra_data)
 		rebuild_join_rel_hash(root);
 	*tree_rel = rel;
 	set_cheapest(rel);
+
+	if (!compare_costs(root, tree->previous_cost,
+					   SAIO_COST(rel), private->temperature))
+	{
+		elog(DEBUG1, "saio_recalc: cost comparison failed (%.2f > %.2f)",
+			 SAIO_COST(rel), tree->previous_cost);
+		return false;
+	}
+
 	return true;
 }
 
@@ -341,6 +360,7 @@ swap_and_recalc(PlannerInfo *root, QueryTree *tree,
 	}
 
 	/* Rebuild the A and B paths */
+	list_walker(ab, keep_costs, false, (void *) root);
 	ok = list_walker(ab, recalculate, true, (void *) root);
 
 	/* If that failed, reset and remove the A and B paths and return */
@@ -361,6 +381,7 @@ swap_and_recalc(PlannerInfo *root, QueryTree *tree,
 	elog(DEBUG1, "[%04d] Managed to rebuild AB paths\n", private->loop_no);
 	move_result = SAIO_MOVE_FAILED;
 	/* Managed to rebuild A and B paths, now remove the C path and rebuild it */
+	list_walker(c, keep_costs, false, (void *) root);
 	list_walker(c, remove_from_planner, false, (void *) root);
 	list_walker(c, reset_memory, false, (void *) root);
 	list_walker(c, nullify, false, (void *) root);

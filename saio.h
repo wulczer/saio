@@ -40,6 +40,7 @@ typedef struct QueryTree {
 	struct QueryTree	*parent;
 	MemoryContext		ctx;
 	MemoryContext		tmpctx;
+	Cost				previous_cost;
 } QueryTree;
 
 
