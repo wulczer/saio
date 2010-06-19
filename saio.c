@@ -97,8 +97,17 @@ acceptable(PlannerInfo *root, Cost new_cost)
 {
 	SaioPrivateData *private = (SaioPrivateData *) root->join_search_private;
 
+	return compare_costs(root, private->previous_cost,
+						 new_cost, private->temperature);
+}
+
+
+bool
+compare_costs(PlannerInfo *root, Cost previous_cost,
+			  Cost new_cost, double temperature)
+{
 	/* downhill moves are always acceptable */
-	if (new_cost < private->previous_cost)
+	if (new_cost < previous_cost)
 		return true;
 
 	/*
@@ -108,16 +117,14 @@ acceptable(PlannerInfo *root, Cost new_cost)
 	 * FIXME: this is to avoid endless loop with the same temperature and state
 	 * that is not changing, figure out *why* that happens and prevent it
 	 */
-	if ((private->temperature < 1) && (private->previous_cost == new_cost))
+	if ((temperature < 1) && (previous_cost == new_cost))
 		return false;
 
 	/*
 	 * Uphill moves are acceptable with probability
 	 *  exp((old - new) / temperature)
 	 */
-	return (saio_rand(root) < exp(
-				((double) (private->previous_cost - new_cost))
-				/ private->temperature));
+	return (saio_rand(root) < exp(((double) (previous_cost - new_cost)) / temperature));
 }
 
 

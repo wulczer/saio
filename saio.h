@@ -108,6 +108,8 @@ void context_enter_mem(PlannerInfo *root);
 void context_exit_mem(PlannerInfo *root);
 
 bool acceptable(PlannerInfo *root, Cost new_cost);
+bool compare_costs(PlannerInfo *root, Cost new_cost,
+				   Cost previous_cost, double temperature);
 
 
 RelOptInfo *saio(PlannerInfo *root, int levels_needed, List *initial_rels);
