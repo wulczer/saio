@@ -399,10 +399,8 @@ swap_and_recalc(PlannerInfo *root, QueryTree *tree,
 	 * path and return */
 	if (!ok)
 	{
-		elog(DEBUG1, "[%04d] Failed to rebuild the tree: "
-			 "new cost %10.4f, old cost %10.4f, reason %d\n",
-			 private->loop_no, SAIO_COST(tree->tmp), private->previous_cost,
-			 move_result);
+		elog(DEBUG1, "[%04d] Failed to rebuild the C path: reason %d",
+			 private->loop_no, move_result);
 		list_walker(ab, remove_from_planner, true, (void *) root);
 		list_walker(ab, reset_memory, true, (void *) root);
 		list_walker(ab, nullify, true, (void *) root);
