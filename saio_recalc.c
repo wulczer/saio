@@ -191,6 +191,15 @@ recalculate(QueryTree *tree, bool fake, void *extra_data)
 	elog(DEBUG1, "saio_recalc: creating joinrel from %R and %R\n",
 		 left->relids, right->relids);
 
+#ifdef NOT_USED
+	/* if this move would create an undesirable join, don't do it */
+	if (!desirable_join(root, left, right))
+	{
+		elog(DEBUG1, "saio_recalc: join is not desirable");
+		return false;
+	}
+#endif
+
 	ctx = MemoryContextSwitchTo(fake ? tree->tmpctx : tree->ctx);
 	n = list_length(root->join_rel_list);
 	prev = list_tail(root->join_rel_list);
@@ -213,7 +222,11 @@ recalculate(QueryTree *tree, bool fake, void *extra_data)
 	*tree_rel = rel;
 	set_cheapest(rel);
 
-	if (!compare_costs(root, tree->previous_cost,
+	/*
+	 * If this node alone has greater cost than the previous tree, we can try
+	 * and eliminate it immediately.
+	 */
+	if (!compare_costs(root, private->previous_cost,
 					   SAIO_COST(rel), private->temperature))
 	{
 		elog(DEBUG1, "saio_recalc: cost comparison failed (%.2f > %.2f)",
