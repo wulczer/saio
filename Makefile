@@ -17,6 +17,7 @@ include $(PGXS)
 # loaded from the load_data.sql file in test/sql
 check:
 	$(top_builddir)/src/test/regress/pg_regress \
+		--dbname=$(USER) \
 		--use-existing \
 		--inputdir=$(srcdir)/test \
 		--outputdir=$(srcdir) \
