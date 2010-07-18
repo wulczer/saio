@@ -1,11 +1,13 @@
 #!/usr/bin/python
 
+import os
 import psycopg2
 import optparse
 from xml.dom import minidom
 import time
 import numpy
 import sys
+import signal
 
 tests1 = [
  (0, 0, 0, 0),
@@ -17,9 +19,10 @@ tests1 = [
  (12, 2, 0.8, 2)
 ]
 
-tests2 = [(i, 2, j, 2)
+tests2 = [(i, j, k, 2)
           for i in range(2, 13, 1)
-          for j in numpy.linspace(0.2, 0.9, 11)]
+          for j in range(2, 4)
+          for k in numpy.linspace(0.2, 0.9, 11)]
 
 def check_time(conn, query, saio_params):
 
@@ -56,7 +59,6 @@ def max_memory(pid):
     for line in file('/proc/%d/status' % pid):
         if not line.startswith('VmPeak'):
             continue
-        print line.split()
         num, unit = line.split()[1:3]
         return int(num)
 
@@ -70,14 +72,34 @@ def output(path, params, cost, t, memory):
     file(path, 'a').write("%d\t%f\t%f\t%d\t%f\t%f\t%f\n" % (params + (cost, t, memory)))
 
 
-def run_tests(tests, query, path, loops):
+class TimeoutException(Exception):
+    pass
+
+
+def handler(signum, frame):
+    print 'ALARM'
+    raise TimeoutException()
+
+signal.signal(signal.SIGALRM, handler)
+
+
+def run_tests(tests, query, path, loops, timeout):
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
     for params in tests:
         costs, times, memory = [], [], []
         for i in range(loops):
             conn = psycopg2.connect(host="localhost")
             conn.set_isolation_level(0)
             pid = conn.get_backend_pid()
-            cost, t = check_time(conn, query, params)
+            signal.alarm(timeout)
+            try:
+                cost, t = check_time(conn, query, params)
+            except TimeoutException:
+                cost, t = -1, -1
+            signal.alarm(0)
             memory.append(max_memory(pid))
             costs.append(cost)
             times.append(t)
@@ -86,13 +108,27 @@ def run_tests(tests, query, path, loops):
                numpy.average(times), numpy.average(memory))
 
 
+
+
 def main():
     parser = optparse.OptionParser()
     parser.add_option("-l", "--loops", type=int)
+    parser.add_option("-t", "--timeout", type=int)
+    parser.add_option("--query1")
+    parser.add_option("--query2")
     opts, args = parser.parse_args(sys.argv)
 
-    tests(tests1, QUERY1, "query1.tests1.out", opts.loops)
-    tests(tests2, QUERY1, "query1.tests2.out", 1)
+    print "Averaging over %d loops" % opts.loops
 
-    tests(tests1, QUERY2, "query2.tests1.out", opts.loops)
-    tests(tests2, QUERY2, "query2.tests2.out", 1)
+    query1 = file(opts.query1).read()
+    query2 = file(opts.query2).read()
+
+    run_tests(tests1, query1, "query1.tests1.out", opts.loops, opts.timeout)
+    run_tests(tests2, query1, "query1.tests2.out", 1, opts.timeout)
+
+    run_tests(tests1, query2, "query2.tests1.out", opts.loops, opts.timeout)
+    run_tests(tests2, query2, "query2.tests2.out", 1, opts.timeout)
+
+
+if __name__ == "__main__":
+    main()
