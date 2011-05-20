@@ -1,7 +1,0 @@
- * consider ordering the list of trees in merge_trees to keep the
-   biggest tree at the beginning, to mimick merge_clump from GEQO more
-   closely
- * select the two random nodes a bit smarter
- * do something about setting the initial temperature, cost * 2 is not
-   scaled to anything, so might suck (looks like it doesn't, because
-   it's scaled by the cost in the acceptable() function)

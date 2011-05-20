@@ -1,25 +1,22 @@
+EXTENSION    = saio
+EXTVERSION   = $(shell grep default_version $(EXTENSION).control | \
+               sed -e "s/default_version[[:space:]]*=[[:space:]]*'\([^']*\)'/\1/")
+
+DOCS         = $(wildcard doc/*.txt)
+TESTS        = $(wildcard test/sql/*.sql)
+REGRESS      = $(patsubst test/sql/%.sql,%,$(TESTS))
+REGRESS_OPTS = --inputdir=test
+PG_CONFIG    = pg_config
+
 MODULE_big = saio
 OBJS = \
-	saio_main.o saio_util.o saio_trees.o \
-	saio_move.o saio_pivot.o saio_recalc.o saio.o saio_debug.o
+	src/saio_main.o src/saio_util.o src/saio_trees.o \
+	src/saio_move.o src/saio_pivot.o src/saio_recalc.o src/saio.o src/saio_debug.o
 
-PG_CONFIG = pg_config
-PG_CPPFLAGS = -Werror -Wno-format -Wno-unused-function -DSAIO_STATS
-
+# if the server is compiled with assertions, add the debug flag
 ifneq (,$(findstring --enable-cassert,$(shell $(PG_CONFIG) --configure)))
 	PG_CPPFLAGS += -DSAIO_DEBUG
 endif
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
-
-# Handrolled, using existing installation with data
-# loaded from the load_data.sql file in test/sql
-check:
-	$(top_builddir)/src/test/regress/pg_regress \
-		--dbname=$(USER) \
-		--use-existing \
-		--inputdir=$(srcdir)/test \
-		--outputdir=$(srcdir) \
-		--psqldir=$(bindir) \
-		--schedule $(srcdir)/test/schedule

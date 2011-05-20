@@ -1,6 +1,6 @@
-# Use an existing installation, makes things much faster
-# test: load_data
-
+# Comment the following line to use an existing installation, makes
+# things much faster
+test: load_data
 test: simple
 test: robert
 test: andres
