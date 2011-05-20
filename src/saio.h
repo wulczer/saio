@@ -16,6 +16,11 @@
 char	path[256];
 #define SAIO_COST(rel) (rel)->cheapest_total_path->total_cost
 
+#if PG_VERSION_NUM >= 90100
+#define SAIO_GUC_HOOK_VALUES NULL, NULL, NULL
+#else
+#define SAIO_GUC_HOOK_VALUES NULL, NULL
+#endif
 
 /* These get set by GUC */
 extern double	saio_seed;
