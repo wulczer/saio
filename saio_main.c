@@ -62,42 +62,43 @@ _PG_init(void)
 	DefineCustomBoolVariable("saio", "Use SA for query planning.", NULL,
 							 &enable_saio, true,
 							 PGC_USERSET,
-							 0, NULL, NULL);
+							 0, NULL, NULL, NULL);
 
 	DefineCustomRealVariable("saio_seed",
 							 "SA random seed.", NULL,
 							 &saio_seed, 0.0, 0.0, 1.0,
 							 PGC_USERSET,
-							 0, NULL, NULL);
+							 0, NULL, NULL, NULL);
 
 	DefineCustomIntVariable("saio_equilibrium_factor",
 							"SA scaling factor for reaching equilibirum.", NULL,
 							&saio_equilibrium_factor, 16, 1, INT_MAX,
 							PGC_USERSET,
-							0, NULL, NULL);
+							0, NULL, NULL, NULL);
 
 	DefineCustomRealVariable("saio_initial_temperature_factor",
 							 "SA scaling factor for initial temperature.", NULL,
 							 &saio_initial_temperature_factor, 2.0, 0.0, 10.0,
 							 PGC_USERSET,
-							 0, NULL, NULL);
+							 0, NULL, NULL, NULL);
 
 	DefineCustomRealVariable("saio_temperature_reduction_factor",
 							 "SA temperature reduction factor.", NULL,
 							 &saio_temperature_reduction_factor, 0.9, 0.0, 1.0,
 							 PGC_USERSET,
-							 0, NULL, NULL);
+							 0, NULL, NULL, NULL);
 
 	DefineCustomIntVariable("saio_moves_before_frozen",
 							"SA moves before considering system frozen.", NULL,
 							&saio_moves_before_frozen, 4, 1, INT_MAX,
 							PGC_USERSET,
-							0, NULL, NULL);
+							0, NULL, NULL, NULL);
 
 	DefineCustomEnumVariable("saio_algorithm", "Algorithm to use for moves.",
 							 NULL,
 							 &saio_move_algorithm, SAIO_ALGORITHM_MOVE,
-							 algorithm_options, PGC_USERSET, 0, NULL, NULL);
+							 algorithm_options, PGC_USERSET,
+							 0, NULL, NULL, NULL);
 	/* Install hook */
 	prev_join_search_hook = join_search_hook;
 	join_search_hook = saio_main;
