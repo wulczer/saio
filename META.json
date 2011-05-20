@@ -2,7 +2,7 @@
    "name": "saio",
    "abstract": "A join order search plugin using simulated annealing.",
    "description": "Provides an experimental planner module that uses a randomised algorithm to try to find the optimal join order.",
-   "version": "0.0.1",
+   "version": "0.0.2",
    "maintainer": [
       "Jan Urbański <wulczer@wulczer.org>"
    ],
@@ -15,6 +15,7 @@
          "version": "0.0.1"
       }
    },
+   "release_status": "unstable",
    "resources": {
       "bugtracker": {
          "web": "http://github.com/wulczer/saio/issues/"
