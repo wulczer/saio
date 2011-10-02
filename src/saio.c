@@ -23,7 +23,7 @@
 #include "saio.h"
 #include "saio_util.h"
 #include "saio_trees.h"
-#include "saio_debug.h"
+#include "saio_probes.h"
 
 extern SaioAlgorithm algorithm;
 
@@ -177,6 +177,7 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	SaioPrivateData	private;
 	bool			ok;
 
+	TRACE_SAIO_PLANNING_START();
 
 	/* Initialize private data */
 	root->join_search_private = (void *) &private;
@@ -234,11 +235,6 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	/* Initialize the minimal state */
 	private.min_tree = NULL;
 
-	/* init debugging */
-	private.steps = NIL;
-	private.joinrels_built = 0;
-	private.loop_no = 0;
-
 	/* initialize the algorithm */
 	if (algorithm.initialize != NULL)
 		algorithm.initialize(root, tree);
@@ -253,38 +249,17 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 
 		do {
 			saio_result	move_result = SAIO_MOVE_OK;
-#ifdef SAIO_STATS
-			/* save values for debugging */
-			SaioStep	*step = palloc(sizeof(SaioStep));
-#endif
 			move_result = algorithm.step(root, tree, all_trees);
 
+			TRACE_SAIO_STEP_DONE(move_result,
+								 (int) rint(SAIO_COST(tree->rel)),
+								 (int) rint(private.temperature),
+								 private.elapsed_loops, private.failed_moves);
+
 			if (move_result == SAIO_MOVE_OK)
-			{
-#ifdef SAIO_STATS
-				step->move_result = SAIO_MOVE_OK;
-#endif
-				private.loop_no++;
 				private.failed_moves = 0;
-			}
 			else
-			{
-#ifdef SAIO_STATS
-				step->move_result = move_result;
-#endif
-				private.loop_no++;
 				private.failed_moves++;
-			}
-#ifdef SAIO_STATS
-			step->cost = private.previous_cost;
-			step->temperature = private.temperature;
-			step->joinrels_built = private.joinrels_built;
-			private.steps = lappend(private.steps, step);
-#endif
-			private.joinrels_built = 0;
-			elog(DEBUG1, "[%04d] at the end of the loop min tree is %p with cost %10.4f\n",
-				 private.loop_no, private.min_tree,
-				 private.min_tree == NULL ? 0 : private.min_cost);
 
 		} while (!equilibrium(root));
 
@@ -292,21 +267,10 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 
 	} while (!frozen(root));
 
-#ifdef SAIO_STATS
-	/* dump debugging values, free memory */
-	dump_debugging(&private);
-	list_free_deep(private.steps);
-#endif
-
-	elog(DEBUG1, "[%04d] at the end of the algorithm min tree is %p with cost %10.4f\n",
-		 private.loop_no, private.min_tree,
-		 private.min_tree == NULL ? 0 : private.min_cost);
-
 	/* if there is a global minimum, pick it */
 	if (private.min_tree != NULL)
 	{
 		tree = private.min_tree;
-		elog(DEBUG1, "The cheapest tree is %10.4f\n", private.min_cost);
 	}
 
 	/* Finalize the algorithm */
@@ -316,8 +280,6 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	/* Rebuild the final rel in the correct memory context */
 	ok = recalculate_tree(root, tree);
 	Assert(ok);
-	snprintf(path, 256, "/tmp/saio-final.dot");
-	dump_query_tree(root, tree, NULL, NULL, true, path);
 	res = tree->rel;
 
 	/* Clean up */
@@ -325,7 +287,8 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	MemoryContextDelete(private.sketch_context);
 	MemoryContextDelete(private.min_context);
 	root->join_search_private = NULL;
-	fflush(stdout);
+
+	TRACE_SAIO_PLANNING_DONE();
 
 	return res;
 }

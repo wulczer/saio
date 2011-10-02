@@ -18,7 +18,6 @@
 #include "optimizer/geqo.h"
 
 #include "saio.h"
-#include "saio_debug.h"
 
 PG_MODULE_MAGIC;
 
@@ -87,11 +86,6 @@ _PG_init(void)
 	/* Install hook */
 	prev_join_search_hook = join_search_hook;
 	join_search_hook = saio_main;
-
-#ifdef SAIO_DEBUG
-	register_printf_specifier('T', print_tree_node, print_tree_node_arginfo);
-	register_printf_specifier('R', print_relids, print_relids_arginfo);
-#endif
 }
 
 /* Module unload */

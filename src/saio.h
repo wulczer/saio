@@ -13,7 +13,6 @@
 #ifndef SAIO_H
 #define SAIO_H
 
-char	path[256];
 #define SAIO_COST(rel) (rel)->cheapest_total_path->total_cost
 
 #if PG_VERSION_NUM >= 90100
@@ -75,11 +74,6 @@ typedef struct SaioPrivateData {
 	double			temperature;		/* current system temperature */
 
 	unsigned short	random_state[3];	/* state for erand48() */
-
-	/* debugging aids */
-	List			*steps;
-	int				joinrels_built;
-	int				loop_no;
 } SaioPrivateData;
 
 

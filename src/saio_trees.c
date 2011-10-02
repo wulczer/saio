@@ -21,7 +21,6 @@
 #include "saio.h"
 #include "saio_util.h"
 #include "saio_trees.h"
-#include "saio_debug.h"
 
 /*
  * Merge a QueryTree into a list of QueryTrees by creating another tree that
@@ -390,9 +389,6 @@ recalculate_tree_cutoff_ctx(PlannerInfo *root, QueryTree *tree,
 	if (!ok)
 		return false;
 
-	elog(DEBUG1, "saio_trees: creating joinrel from %R and %R (own ctx: %d)\n",
-		 tree->left->rel->relids, tree->right->rel->relids, own_ctx);
-
 	/* try to join the children's relations */
 	if (own_ctx)
 	{
@@ -408,9 +404,6 @@ recalculate_tree_cutoff_ctx(PlannerInfo *root, QueryTree *tree,
 
 	if (joinrel)
 	{
-		SaioPrivateData *private = (SaioPrivateData *) root->join_search_private;
-		private->joinrels_built++;
-
 		/* constructed the joinrel, compute its paths and store it */
 		set_cheapest(joinrel);
 		tree->rel = joinrel;
@@ -463,7 +456,6 @@ keep_minimum_state(PlannerInfo *root, QueryTree *tree, Cost new_cost)
 		if ((private->min_tree != NULL) && (private->min_cost >= new_cost))
 		{
 			/* we broke the global minimum, forget it */
-			elog(DEBUG1, "[%04d] global minimum broken\n", private->loop_no);
 			MemoryContextReset(private->min_context);
 			private->min_tree = NULL;
 		}
@@ -480,7 +472,6 @@ keep_minimum_state(PlannerInfo *root, QueryTree *tree, Cost new_cost)
 			if (private->min_tree != NULL)
 				MemoryContextReset(private->min_context);
 
-			elog(DEBUG1, "[%04d] new global minimum\n", private->loop_no);
 			/* copy the current state into the global minimum context */
 			old_context = MemoryContextSwitchTo(private->min_context);
 			private->min_tree = copy_tree_structure(tree);
