@@ -25,9 +25,7 @@
 #include "saio_trees.h"
 #include "saio_debug.h"
 
-extern SaioAlgorithm saio_move;
-extern SaioAlgorithm saio_pivot;
-extern SaioAlgorithm saio_recalc;
+extern SaioAlgorithm algorithm;
 
 /*
  * Save the current state of the variables that get modified during
@@ -177,11 +175,8 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	List			*all_trees;
 	RelOptInfo		*res;
 	SaioPrivateData	private;
-	SaioAlgorithm	algorithm;
 	bool			ok;
 
-	/* By default use the "move" algorithm */
-	algorithm = saio_move;
 
 	/* Initialize private data */
 	root->join_search_private = (void *) &private;
@@ -243,22 +238,6 @@ saio(PlannerInfo *root, int levels_needed, List *initial_rels)
 	private.steps = NIL;
 	private.joinrels_built = 0;
 	private.loop_no = 0;
-
-	switch (saio_move_algorithm)
-	{
-		case SAIO_ALGORITHM_MOVE:
-			algorithm = saio_move;
-			break;
-		case SAIO_ALGORITHM_PIVOT:
-			algorithm = saio_pivot;
-			break;
-		case SAIO_ALGORITHM_RECALC:
-			algorithm = saio_recalc;
-			break;
-		default:
-			elog(ERROR, "invalid algorithm: %d", saio_move_algorithm);
-	}
-
 
 	/* initialize the algorithm */
 	if (algorithm.initialize != NULL)
