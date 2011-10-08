@@ -218,6 +218,14 @@ recalculate(QueryTree *tree, bool fake, void *extra_data)
 	 * If this node alone has greater cost than the previous tree, we can try
 	 * and eliminate it immediately.
 	 */
+#ifdef NOT_USED
+	/*
+	 * Bad idea! When recalculating known-good trees, we don't want to fail
+	 * just because they're costly (or because we had bad luck with the
+	 * PRNG). In any case, running compare_costs every time a tree is built
+	 * makes the possibility of making an uphill move much, much lower which
+	 * isn't necessarily good.
+	 */
 	if (!compare_costs(root, private->previous_cost,
 					   SAIO_COST(rel), private->temperature))
 	{
@@ -225,6 +233,7 @@ recalculate(QueryTree *tree, bool fake, void *extra_data)
 	}
 
 	return true;
+#endig
 }
 
 
