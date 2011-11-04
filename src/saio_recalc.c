@@ -231,9 +231,8 @@ recalculate(QueryTree *tree, bool fake, void *extra_data)
 	{
 		return false;
 	}
-
+#endif
 	return true;
-#endig
 }
 
 
